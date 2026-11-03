@@ -26,6 +26,7 @@ artifacts/
 reports/generated/
 exports/
 workspaces/
+runs/
 *.pt
 *.pt2
 *.pth

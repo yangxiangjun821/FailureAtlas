@@ -38,6 +38,13 @@ python -m pytest
 
 ## Run the local agent
 
+List the model, dataset, and perturbation catalog, then validate a combination:
+
+```powershell
+python -m failure_atlas.agent catalog
+python -m failure_atlas.agent validate --model fashion_cnn --dataset fashion_mnist
+```
+
 Inspect the planned workflow without changing any files:
 
 ```powershell
@@ -53,7 +60,7 @@ python -m failure_atlas.agent run --stage analyze
 Run the complete diagnosis → repair → verification loop:
 
 ```powershell
-python -m failure_atlas.agent run --stage full
+python -m failure_atlas.agent run --stage full --run-id my-first-study
 ```
 
 The agent resumes from existing artifacts by default. Use `--force` to repeat every
@@ -64,9 +71,11 @@ test. If the experiments already exist, regenerate only the report with:
 python -m failure_atlas.agent report
 ```
 
-Primary outputs are `reports/generated/agent_report.md` for people and
-`reports/generated/agent_run.json` for automation. See the committed
-[example agent report](docs/example-agent-report.md) for a reference run.
+Every real run is archived under `runs/<run_id>/` with its configuration,
+environment metadata, metrics, failure analysis, repair evidence, plots, Markdown
+report, and machine-readable manifest. The `runs/` directory is local-only and
+ignored by Git. See the committed [example agent report](docs/example-agent-report.md)
+for a reference run.
 
 ## Manual experiment commands
 

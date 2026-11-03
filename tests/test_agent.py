@@ -1,6 +1,6 @@
 import json
 
-from failure_atlas.agent import generate_agent_report, steps_for
+from failure_atlas.agent import generate_agent_report, run_pipeline, steps_for
 
 
 def sample_analysis() -> dict:
@@ -27,6 +27,11 @@ def sample_analysis() -> dict:
 def test_pipeline_stages_are_ordered() -> None:
     assert [step.key for step in steps_for("analyze")] == ["data", "baseline", "scan"]
     assert [step.key for step in steps_for("full")][-2:] == ["repair", "compare"]
+
+
+def test_dry_run_does_not_create_workspace(tmp_path) -> None:
+    assert run_pipeline("analyze", dry_run=True, runs_root=tmp_path) is None
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_agent_generates_standalone_markdown_report(tmp_path) -> None:

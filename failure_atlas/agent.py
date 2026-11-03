@@ -10,7 +10,20 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .catalog import (
+    DATASET_REGISTRY,
+    MODEL_REGISTRY,
+    PERTURBATION_REGISTRY,
+    validate_selection,
+)
 from .comparison import boundary_delta
+from .experiments import (
+    RunWorkspace,
+    archive_run_artifacts,
+    create_run_workspace,
+    finalize_run,
+    validate_run_artifacts,
+)
 from .repair_agent import create_repair_plan
 from .reporting import DISPLAY_NAMES
 
@@ -87,8 +100,15 @@ def command_for(step: PipelineStep, baseline_epochs: int | None = None) -> list[
     return command
 
 
-def print_plan(stage: str, baseline_epochs: int | None = None) -> None:
+def print_plan(
+    stage: str,
+    baseline_epochs: int | None = None,
+    model_id: str = "fashion_cnn",
+    dataset_id: str = "fashion_mnist",
+) -> None:
+    validate_selection(model_id, dataset_id)
     print(f"FailureAtlas local agent plan ({stage})")
+    print(f"  selection. model={model_id}, dataset={dataset_id}")
     for index, step in enumerate(steps_for(stage), start=1):
         status = "ready" if step.ready else "pending"
         command = " ".join(command_for(step, baseline_epochs))
@@ -103,23 +123,75 @@ def run_pipeline(
     force: bool = False,
     dry_run: bool = False,
     baseline_epochs: int | None = None,
+    model_id: str = "fashion_cnn",
+    dataset_id: str = "fashion_mnist",
+    run_id: str | None = None,
+    runs_root: str | Path | None = None,
 ) -> Path | None:
-    print_plan(stage, baseline_epochs)
+    validate_selection(model_id, dataset_id)
+    print_plan(stage, baseline_epochs, model_id, dataset_id)
     if dry_run:
         return None
 
-    for step in steps_for(stage):
-        if step.ready and not force:
-            print(f"[skip] {step.title}: expected outputs already exist")
-            continue
-        command = command_for(step, baseline_epochs)
-        print(f"[run]  {step.title}")
-        subprocess.run(command, cwd=ROOT, check=True)
-        if not step.ready:
-            missing = [str(path.relative_to(ROOT)) for path in step.outputs if not path.exists()]
-            raise RuntimeError(f"Step '{step.key}' completed without outputs: {missing}")
+    workspace = create_run_workspace(
+        runs_root or ROOT / "runs",
+        model_id=model_id,
+        dataset_id=dataset_id,
+        stage=stage,
+        run_id=run_id,
+    )
+    print(f"[run]  workspace={workspace.path}")
+    try:
+        for step in steps_for(stage):
+            if step.ready and not force:
+                print(f"[skip] {step.title}: expected outputs already exist")
+                continue
+            command = command_for(step, baseline_epochs)
+            print(f"[run]  {step.title}")
+            subprocess.run(command, cwd=ROOT, check=True)
+            if not step.ready:
+                missing = [str(path.relative_to(ROOT)) for path in step.outputs if not path.exists()]
+                raise RuntimeError(f"Step '{step.key}' completed without outputs: {missing}")
 
-    return generate_agent_report()
+        report = generate_agent_report()
+        archived = _archive_current_outputs(workspace, report)
+        required = ("config.yaml", "metadata.json", "failure_analysis.json", "agent_report.md")
+        validate_run_artifacts(workspace, required)
+        finalize_run(workspace, status="completed", artifacts=archived)
+        run_report = workspace.path / "agent_report.md"
+        print(f"[complete] run_id={workspace.run_id}")
+        return run_report
+    except Exception as error:
+        finalize_run(workspace, status="failed", error=str(error))
+        raise
+
+
+def _archive_current_outputs(workspace: RunWorkspace, report: Path) -> list[str]:
+    sources = {
+        "baseline_metrics.json": ROOT / "artifacts/baseline_metrics.json",
+        "failure_analysis.json": ROOT / "reports/generated/failure_analysis.json",
+        "repair_plan.json": ROOT / "artifacts/repair_plan.json",
+        "repair_comparison.json": ROOT / "reports/generated/repair_comparison.json",
+        "agent_report.md": report,
+        "plots/failure_curves.png": ROOT / "reports/generated/failure_curves.png",
+        "plots/repair_comparison.png": ROOT / "reports/generated/repair_comparison.png",
+    }
+    return archive_run_artifacts(workspace, sources)
+
+
+def print_catalog() -> None:
+    print("Models")
+    for spec in MODEL_REGISTRY.values():
+        status = "ready" if spec.implemented else "planned"
+        print(f"  {spec.id:<16} {status:<8} {spec.display_name}")
+    print("Datasets")
+    for spec in DATASET_REGISTRY.values():
+        status = "ready" if spec.implemented else "planned"
+        print(f"  {spec.id:<16} {status:<8} {spec.display_name}")
+    print("Perturbations")
+    for spec in PERTURBATION_REGISTRY.values():
+        status = "ready" if spec.implemented else "planned"
+        print(f"  {spec.id:<16} {status:<8} {spec.display_name}")
 
 
 def _load_json(path: Path) -> dict:
@@ -259,9 +331,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--stage", choices=("analyze", "full"), default="full")
         subparser.add_argument("--baseline-epochs", type=int)
+        subparser.add_argument("--model", default="fashion_cnn")
+        subparser.add_argument("--dataset", default="fashion_mnist")
         if command == "run":
             subparser.add_argument("--force", action="store_true")
             subparser.add_argument("--dry-run", action="store_true")
+            subparser.add_argument("--run-id")
+    subparsers.add_parser("catalog")
+    validate = subparsers.add_parser("validate")
+    validate.add_argument("--model", required=True)
+    validate.add_argument("--dataset", required=True)
+    validate.add_argument("--perturbation", action="append", dest="perturbations")
     report = subparsers.add_parser("report")
     report.add_argument("--output", type=Path)
     return parser.parse_args(argv)
@@ -270,14 +350,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if args.command == "plan":
-        print_plan(args.stage, args.baseline_epochs)
+        print_plan(args.stage, args.baseline_epochs, args.model, args.dataset)
     elif args.command == "run":
         run_pipeline(
             args.stage,
             force=args.force,
             dry_run=args.dry_run,
             baseline_epochs=args.baseline_epochs,
+            model_id=args.model,
+            dataset_id=args.dataset,
+            run_id=args.run_id,
         )
+    elif args.command == "catalog":
+        print_catalog()
+    elif args.command == "validate":
+        validate_selection(
+            args.model,
+            args.dataset,
+            tuple(args.perturbations) if args.perturbations else None,
+        )
+        print(f"Valid selection: model={args.model}, dataset={args.dataset}")
     else:
         generate_agent_report(output_path=args.output)
 
