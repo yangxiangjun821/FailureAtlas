@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090c10" />
+    <title>FailureAtlas · 模型失效边界</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>FailureAtlas</span>
+        </div>
+        <nav>
+          <a class="nav-item active" href="#overview" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>
+            总览
+          </a>
+          <a class="nav-item" href="#boundaries">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 9 6l4 8 3-5 4 9H4Z"/></svg>
+            失效边界
+          </a>
+          <a class="nav-item" href="#agent">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 0-4 4v1H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2V7a4 4 0 0 0-4-4Zm-1 12H8v-2h3v2Zm5 0h-3v-2h3v2Zm-2-7h-4V7a2 2 0 1 1 4 0v1Z"/></svg>
+            修复智能体
+          </a>
+          <a class="nav-item" href="#projects">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4H4V5Zm0 6h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8Zm4 3v2h5v-2H8Z"/></svg>
+            模型项目
+          </a>
+        </nav>
+        <div class="sidebar-meta">
+          <span class="status-dot"></span>
+          <div><strong>本地运行</strong><span>CUDA · 离线数据</span></div>
+        </div>
+      </aside>
+
+      <main id="main">
+        <header class="topbar">
+          <div>
+            <h1>模型失效边界图谱</h1>
+            <p id="model-meta">正在读取实验产物…</p>
+          </div>
+          <div class="topbar-actions">
+            <a class="button secondary" href="/reports/repair_report.md" target="_blank">查看报告</a>
+            <button class="button secondary" id="import-button" type="button">导入模型包</button>
+            <input id="bundle-input" type="file" accept=".fatlas,.zip,application/zip" hidden />
+            <button class="button primary" id="repair-button" type="button">启动自动修复</button>
+          </div>
+        </header>
+
+        <div class="loading-state" id="loading-state" role="status">
+          <span></span><span></span><span></span>
+          <p>载入失效边界与修复证据</p>
+        </div>
+
+        <div id="dashboard" hidden>
+          <div class="showcase-notice" id="showcase-notice" hidden>
+            <strong>在线作品集模式</strong>
+            <span>展示真实实验结果；训练、模型导入和自动修复需在本地 GPU 版本运行。</span>
+          </div>
+          <section class="overview" id="overview" aria-labelledby="overview-title">
+            <div class="overview-copy">
+              <h2 id="overview-title">模型不是“更准”，而是更晚失效。</h2>
+              <p>智能体从完整扰动扫描中识别脆弱点，选择定向增强，并用同一组 10,000 张测试图重新验证。</p>
+            </div>
+            <dl class="quality-strip">
+              <div><dt>干净准确率</dt><dd id="clean-after">—</dd><small id="clean-delta">—</small></div>
+              <div><dt>旋转严重边界</dt><dd id="rotation-boundary">—</dd><small>修复前 → 修复后</small></div>
+              <div><dt>噪声严重边界</dt><dd id="noise-boundary">—</dd><small>修复前 → 修复后</small></div>
+              <div><dt>模糊严重边界</dt><dd id="blur-boundary">—</dd><small>修复前 → 修复后</small></div>
+            </dl>
+          </section>
+
+          <section class="workspace" id="boundaries">
+            <div class="chart-panel">
+              <div class="section-heading">
+                <div><h2>鲁棒性前沿</h2><p>选择扰动，查看修复前后的完整精度曲线。</p></div>
+                <div class="legend" aria-label="图例"><span class="baseline">基线</span><span class="repaired">修复后</span></div>
+              </div>
+              <div class="perturbation-tabs" id="perturbation-tabs" role="tablist" aria-label="扰动类型"></div>
+              <div class="chart-wrap"><svg id="comparison-chart" role="img" aria-label="模型精度对比曲线"></svg></div>
+              <div class="chart-summary" id="chart-summary"></div>
+            </div>
+
+            <aside class="diagnosis-panel" id="agent" aria-labelledby="agent-title">
+              <div class="section-heading"><div><h2 id="agent-title">智能体决策</h2><p>按持续性能损失排序，而非只看单个极端点。</p></div></div>
+              <ol class="action-list" id="action-list"></ol>
+              <div class="guardrail">
+                <span>质量护栏</span>
+                <strong id="guardrail-value">—</strong>
+                <p>修复后干净准确率变化</p>
+              </div>
+              <button class="text-action" id="rescan-button" type="button">重新扫描全部边界 <span aria-hidden="true">→</span></button>
+            </aside>
+          </section>
+
+          <section class="boundary-section" aria-labelledby="boundary-title">
+            <div class="section-heading"><div><h2 id="boundary-title">边界移动明细</h2><p>严重失效定义为相对干净准确率下降至少 20 个百分点。</p></div></div>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>扰动</th><th>修复前</th><th>修复后</th><th>最大强度精度变化</th><th>结论</th></tr></thead>
+                <tbody id="boundary-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="job-console" id="job-console" aria-live="polite">
+            <div><span class="job-indicator"></span><strong id="job-title">实验队列空闲</strong><small id="job-time">等待操作</small></div>
+            <pre id="job-log">从右上角启动自动修复，或重新扫描全部边界。</pre>
+          </section>
+
+          <section class="projects-section" id="projects" aria-labelledby="projects-title">
+            <div class="section-heading">
+              <div><h2 id="projects-title">模型工作区</h2><p>导入包会先在 CPU 上完成结构、安全性和干净集精度校验。</p></div>
+              <button class="text-action compact" id="workspace-import-button" type="button">导入 .fatlas <span aria-hidden="true">＋</span></button>
+            </div>
+            <div class="import-status" id="import-status" hidden role="status"></div>
+            <div class="project-list" id="project-list"></div>
+          </section>
+        </div>
+
+        <div class="error-state" id="error-state" hidden role="alert">
+          <h2>无法载入实验数据</h2>
+          <p id="error-message"></p>
+          <button class="button secondary" type="button" onclick="location.reload()">重新载入</button>
+        </div>
+      </main>
+    </div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

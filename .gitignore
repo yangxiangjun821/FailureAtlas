@@ -1,0 +1,42 @@
+# Python environments and caches
+.venv/
+.wheel-cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local secrets and editor state
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Downloaded datasets, experiment outputs, and model bundles
+data/
+artifacts/
+reports/generated/
+exports/
+workspaces/
+*.pt
+*.pt2
+*.pth
+*.ckpt
+*.onnx
+*.fatlas
+
+# Generated deployment packages
+deploy/*.tar.gz
+
+# Sites keeps its own internal source repository here. The public site can be
+# rebuilt from web/, deploy/dashboard.json, and scripts/build_static_site.py.
+sites/failure-atlas-showcase/
+

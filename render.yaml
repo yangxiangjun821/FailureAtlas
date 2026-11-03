@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: failure-atlas
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-deploy.txt
+    startCommand: uvicorn failure_atlas.web:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: FAILUREATLAS_DEMO
+        value: "1"
+      - key: PYTHON_VERSION
+        value: 3.12.8

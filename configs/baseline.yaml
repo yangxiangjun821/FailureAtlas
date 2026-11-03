@@ -1,0 +1,9 @@
+training:
+  seed: 42
+  batch_size: 128
+  epochs: 8
+  learning_rate: 0.001
+  num_workers: 0
+  data_dir: data
+  artifact_dir: artifacts
+  device: auto
