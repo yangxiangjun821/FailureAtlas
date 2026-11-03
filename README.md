@@ -1,10 +1,8 @@
 # FailureAtlas
 
-FailureAtlas is an AI/ML agent project that discovers where a trained model starts
-to fail under controlled distribution shifts, explains the failure region, and later
-recommends targeted repairs.
-
-**Live demo:** [failure-atlas-ml-agent.grey-wren-2859.chatgpt.site](https://failure-atlas-ml-agent.grey-wren-2859.chatgpt.site/)
+FailureAtlas is a local AI/ML agent that discovers where a trained model starts to
+fail under controlled distribution shifts, selects targeted repairs, verifies the
+result, and generates an evidence-backed Markdown report. It requires no LLM API.
 
 ## What makes it different
 
@@ -38,11 +36,41 @@ python verify_environment.py
 python -m pytest
 ```
 
-## Phase 1 baseline
+## Run the local agent
 
-The first milestone trains a compact CNN on Fashion-MNIST and records a reproducible
-clean-data baseline. Later steps will automatically search rotation, noise, blur,
-occlusion, and brightness failure thresholds.
+Inspect the planned workflow without changing any files:
+
+```powershell
+python -m failure_atlas.agent plan --stage full
+```
+
+Run only data preparation, baseline training, and failure analysis:
+
+```powershell
+python -m failure_atlas.agent run --stage analyze
+```
+
+Run the complete diagnosis → repair → verification loop:
+
+```powershell
+python -m failure_atlas.agent run --stage full
+```
+
+The agent resumes from existing artifacts by default. Use `--force` to repeat every
+step, `--dry-run` to preview execution, or `--baseline-epochs 1` for a quick smoke
+test. If the experiments already exist, regenerate only the report with:
+
+```powershell
+python -m failure_atlas.agent report
+```
+
+Primary outputs are `reports/generated/agent_report.md` for people and
+`reports/generated/agent_run.json` for automation. See the committed
+[example agent report](docs/example-agent-report.md) for a reference run.
+
+## Manual experiment commands
+
+The individual pipeline stages remain available for study and debugging:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -86,6 +114,10 @@ The final evidence report is written to `reports/generated/repair_report.md`.
 
 ## Web dashboard
 
+The dashboard is an optional visualization layer, not a requirement for running the
+agent or generating reports. A read-only public demo is available at
+[failure-atlas-ml-agent.grey-wren-2859.chatgpt.site](https://failure-atlas-ml-agent.grey-wren-2859.chatgpt.site/).
+
 Start the local control console after the experiment artifacts exist:
 
 ```powershell
@@ -108,7 +140,7 @@ PyTorch Export `model.pt2`, and a `test.npz` with `images` and `labels`. Import 
 the dashboard. FailureAtlas validates archive paths, sizes, input shape and range,
 class count, model outputs, and clean accuracy before adding it to the workspace.
 
-## Public deployment
+## Optional web deployment
 
 The repository includes a root-level `render.yaml` and lightweight
 `requirements-deploy.txt` for deploying the read-only dashboard from GitHub.
@@ -142,7 +174,7 @@ the first push, review the files Git will publish:
 git init
 git add .
 git status
-git commit -m "Initial public release"
+git commit -m "Add local FailureAtlas agent"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/failure-atlas.git
 git push -u origin main

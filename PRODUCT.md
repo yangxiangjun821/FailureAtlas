@@ -4,12 +4,12 @@
 
 ## Platform
 
-web
+Local-first Python CLI. The web dashboard is an optional read-only visualization.
 
 ## Stack
 
-FastAPI serves a dependency-free HTML, CSS, and JavaScript dashboard. The existing
-PyTorch experiment code remains the source of truth for training and evaluation.
+Python orchestrates a deterministic PyTorch experiment pipeline and produces JSON,
+Markdown, and plot artifacts. FastAPI can serve the optional dashboard.
 
 ## Users
 
@@ -38,13 +38,15 @@ reports. It is designed to run locally and remain useful without external APIs.
 - Compare baseline and repaired models across rotation, noise, blur, occlusion, and brightness.
 - Expose mild, obvious, and severe failure boundaries.
 - Show clean-accuracy guardrails and repair tradeoffs.
-- Trigger local rescan and repair jobs from the dashboard.
+- Plan, resume, and repeat the experiment from one command-line agent entry point.
+- Generate a human-readable report plus a machine-readable run manifest.
+- Optionally trigger local rescan and repair jobs from the dashboard.
 - The built-in analysis uses Fashion-MNIST; schema-v1 `.fatlas` bundles can import
   PyTorch Export image classifiers and `.npz` test sets for validation.
 
 ## Planned Experiments
 
-- Build a model catalog and website selector covering representative image,
+- Build a model catalog and configuration selector covering representative image,
   sequence, and tabular architectures. Every model must run through the same
   failure-boundary protocol so comparisons remain meaningful.
 - Build a versioned dataset library. Start with MNIST, Fashion-MNIST, CIFAR-10,

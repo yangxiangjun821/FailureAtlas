@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "An agent for discovering machine-learning model failure boundaries"
 requires-python = ">=3.12"
 
+[project.scripts]
+failure-atlas = "failure_atlas.agent:main"
+
 [tool.setuptools.packages.find]
 include = ["failure_atlas*"]
 
