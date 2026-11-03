@@ -42,6 +42,15 @@ reports. It is designed to run locally and remain useful without external APIs.
 - The built-in analysis uses Fashion-MNIST; schema-v1 `.fatlas` bundles can import
   PyTorch Export image classifiers and `.npz` test sets for validation.
 
+## Planned Experiments
+
+- Build a model catalog and website selector covering representative image,
+  sequence, and tabular architectures. Every model must run through the same
+  failure-boundary protocol so comparisons remain meaningful.
+- Build a versioned dataset library. Start with MNIST, Fashion-MNIST, CIFAR-10,
+  CIFAR-100, and SVHN, then add text and tabular datasets after task-specific
+  perturbation adapters are defined.
+
 ## Evidence on Hand
 
 - `reports/generated/failure_analysis.json`: complete baseline scan.

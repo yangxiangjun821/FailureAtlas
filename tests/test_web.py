@@ -12,5 +12,9 @@ def test_dashboard_entry_and_api_function() -> None:
     response = index()
     assert response.status_code == 200
     assert response.path.name == "index.html"
+    page = response.path.read_text(encoding="utf-8")
+    assert 'id="roadmap"' in page
+    assert 'id="todo-model-catalog"' in page
+    assert 'id="todo-dataset-library"' in page
     assert dashboard()["dataset"] == "Fashion-MNIST"
     assert projects()["projects"][0]["status"] == "analyzed"

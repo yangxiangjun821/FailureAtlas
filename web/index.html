@@ -32,6 +32,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4H4V5Zm0 6h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8Zm4 3v2h5v-2H8Z"/></svg>
             模型项目
           </a>
+          <a class="nav-item" href="#roadmap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v2h3v16H4V5h3V3Zm2 2h6V4H9v1Zm-2 3v11h10V8H7Zm2 2h6v2H9v-2Zm0 4h6v2H9v-2Z"/></svg>
+            实验计划
+          </a>
         </nav>
         <div class="sidebar-meta">
           <span class="status-dot"></span>
@@ -121,6 +125,56 @@
             </div>
             <div class="import-status" id="import-status" hidden role="status"></div>
             <div class="project-list" id="project-list"></div>
+          </section>
+
+          <section class="roadmap-section" id="roadmap" aria-labelledby="roadmap-title">
+            <div class="section-heading roadmap-heading">
+              <div>
+                <h2 id="roadmap-title">下一阶段实验计划</h2>
+                <p>把单一模型演示扩展为可切换、可复现的模型与数据集研究台。</p>
+              </div>
+              <span class="roadmap-count">2 项待办</span>
+            </div>
+
+            <div class="roadmap-list">
+              <article class="roadmap-row" id="todo-model-catalog">
+                <div class="roadmap-status"><span>待办</span><small>模型系统</small></div>
+                <div class="roadmap-body">
+                  <h3>建立主流模型目录与网页切换器</h3>
+                  <p>总结不同任务中的代表模型，并在网站中直接选择模型运行同一套失效边界实验。首批覆盖 CNN、ResNet、ViT、RNN/LSTM、Transformer 与 MLP；跨任务模型仅在对应数据适配器完成后开放。</p>
+                  <div class="roadmap-scope" aria-label="模型任务范围">
+                    <span>图像分类</span><span>序列建模</span><span>表格数据</span>
+                  </div>
+                </div>
+                <div class="roadmap-acceptance">
+                  <strong>完成标准</strong>
+                  <ul>
+                    <li>页面可直接更换模型与配置</li>
+                    <li>统一扰动、阈值与评估指标</li>
+                    <li>并排比较精度、边界和参数量</li>
+                  </ul>
+                </div>
+              </article>
+
+              <article class="roadmap-row" id="todo-dataset-library">
+                <div class="roadmap-status"><span>待办</span><small>数据系统</small></div>
+                <div class="roadmap-body">
+                  <h3>准备多数据集测试库</h3>
+                  <p>建立统一的数据集清单、下载校验、预处理和缓存接口。第一批接入 MNIST、Fashion-MNIST、CIFAR-10、CIFAR-100 与 SVHN；后续在定义文本和表格扰动后扩展 AG News 与 UCI Adult。</p>
+                  <div class="roadmap-scope" aria-label="首批数据集">
+                    <span>MNIST</span><span>Fashion-MNIST</span><span>CIFAR-10</span><span>CIFAR-100</span><span>SVHN</span>
+                  </div>
+                </div>
+                <div class="roadmap-acceptance">
+                  <strong>完成标准</strong>
+                  <ul>
+                    <li>网页可选择并检查数据集状态</li>
+                    <li>自动下载、校验与本地缓存</li>
+                    <li>保存版本、划分和预处理记录</li>
+                  </ul>
+                </div>
+              </article>
+            </div>
           </section>
         </div>
 
