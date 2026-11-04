@@ -215,6 +215,8 @@ git push -u origin main
 To keep your email private, switch the commit identity to your GitHub `noreply`
 address before the first push and rewrite the existing commits' author.
 
-Do not commit `.env` files, API keys, downloaded datasets, or trained weights. No
-open-source license has been selected yet; add one before accepting outside reuse or
-contributions.
+Do not commit `.env` files, API keys, downloaded datasets, or trained weights.
+
+## License
+
+Released under the [MIT License](LICENSE).
