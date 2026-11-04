@@ -45,6 +45,21 @@ python -m failure_atlas.agent catalog
 python -m failure_atlas.agent validate --model fashion_cnn --dataset fashion_mnist
 ```
 
+The catalog includes FashionCNN, LeNet, ResNet-18, MobileNetV3-Small,
+EfficientNet-B0, ConvNeXt-Tiny, and ViT-CIFAR with Fashion-MNIST, MNIST, and
+CIFAR-10. The four modern vision models currently use from-scratch CIFAR-10
+training; pretrained-weight support is the next Phase E task. See the generated
+[compatibility matrix](docs/compatibility-matrix.md) and
+[baseline report](docs/p0-baseline-report.md). The remaining Phase E verification
+steps are tracked in the [modern-model checklist](docs/stage-e-checklist.md).
+
+Train a selected baseline without changing Python code:
+
+```powershell
+python -m scripts.download_data --model lenet --dataset mnist
+python -m scripts.train_baseline --model lenet --dataset mnist --epochs 1
+```
+
 Inspect the planned workflow without changing any files:
 
 ```powershell
@@ -69,6 +84,14 @@ test. If the experiments already exist, regenerate only the report with:
 
 ```powershell
 python -m failure_atlas.agent report
+```
+
+Outputs are isolated per selection: FashionCNN on Fashion-MNIST keeps the original
+flat layout (`artifacts/`, `reports/generated/`), and every other combination writes to
+`artifacts/<model>_<dataset>/` and `reports/generated/<model>_<dataset>/`. For example:
+
+```powershell
+python -m failure_atlas.agent run --stage full --model lenet --dataset mnist
 ```
 
 Every real run is archived under `runs/<run_id>/` with its configuration,
