@@ -147,8 +147,9 @@ The final evidence report is written to `reports/generated/repair_report.md`.
 ## Web dashboard
 
 The dashboard is an optional visualization layer, not a requirement for running the
-agent or generating reports. A read-only public demo is available at
-[failure-atlas-ml-agent.grey-wren-2859.chatgpt.site](https://failure-atlas-ml-agent.grey-wren-2859.chatgpt.site/).
+agent or generating reports. Setting `FAILUREATLAS_DEMO=1` starts a read-only
+showcase that serves `deploy/dashboard.json`; `render.yaml` deploys it that way. Rebuild
+the snapshot with `python -m scripts.build_deploy_snapshot` after new experiments.
 
 Start the local control console after the experiment artifacts exist:
 
@@ -198,24 +199,26 @@ Git because the hosted Sites workflow maintains its own internal repository.
 
 ## GitHub publishing checklist
 
-The repository ignores virtual environments, package caches, datasets, trained
-weights, generated reports, exported model bundles, and deployment archives. The
-tracked files are source, configuration, calibration tables, documentation, and the
-small `deploy/dashboard.json` snapshot that `render.yaml` serves in demo mode.
+This repository is published at
+[github.com/yangxiangjun821/FailureAtlas](https://github.com/yangxiangjun821/FailureAtlas).
+It ignores virtual environments, package caches, datasets, trained weights, generated
+reports, exported model bundles, and deployment archives. The tracked files are source,
+configuration, calibration tables, documentation, and the small
+`deploy/dashboard.json` snapshot that `render.yaml` serves in demo mode.
 
-Create an empty repository on GitHub (without a README or license), then:
+Before publishing a copy or fork elsewhere, check what Git will publish and which
+author identities it exposes:
 
 ```powershell
 git status                      # should be clean
 git log --format="%an <%ae>"    # authors that become public
-git remote add origin https://github.com/YOUR_USERNAME/failure-atlas.git
+git remote add origin https://github.com/<your-user>/<your-repo>.git
 git push -u origin main
 ```
 
-To keep your email private, switch the commit identity to your GitHub `noreply`
-address before the first push and rewrite the existing commits' author.
-
-Do not commit `.env` files, API keys, downloaded datasets, or trained weights.
+Use your GitHub `noreply` address as the commit email if you want to keep a personal
+address private. Do not commit `.env` files, API keys, downloaded datasets, or trained
+weights.
 
 ## License
 
