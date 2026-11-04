@@ -24,6 +24,7 @@ from .experiments import (
     finalize_run,
     validate_run_artifacts,
 )
+from .paths import ExperimentPaths, experiment_paths
 from .repair_agent import create_repair_plan
 from .reporting import DISPLAY_NAMES
 
@@ -43,60 +44,110 @@ class PipelineStep:
         return bool(self.outputs) and all(path.exists() for path in self.outputs)
 
 
-PIPELINE = (
-    PipelineStep(
-        "data",
-        "Prepare the Fashion-MNIST dataset",
-        "scripts.download_data",
-        (ROOT / "data/FashionMNIST/raw/train-images-idx3-ubyte",),
-    ),
-    PipelineStep(
-        "baseline",
-        "Train and verify the baseline model",
-        "scripts.train_baseline",
-        (
-            ROOT / "artifacts/baseline_fashion_cnn.pt",
-            ROOT / "artifacts/baseline_metrics.json",
-        ),
-    ),
-    PipelineStep(
-        "scan",
-        "Discover failure boundaries",
-        "scripts.search_failures",
-        (
-            ROOT / "reports/generated/failure_analysis.json",
-            ROOT / "reports/generated/failure_report.md",
-        ),
-    ),
-    PipelineStep(
-        "repair",
-        "Select targeted repairs and fine-tune",
-        "scripts.repair_model",
-        (
-            ROOT / "artifacts/repaired_fashion_cnn.pt",
-            ROOT / "artifacts/repair_plan.json",
-        ),
-    ),
-    PipelineStep(
-        "compare",
-        "Re-scan and compare the repaired model",
-        "scripts.compare_repair",
-        (
-            ROOT / "reports/generated/repair_comparison.json",
-            ROOT / "reports/generated/repair_report.md",
-        ),
-    ),
-)
+DATA_MARKERS = {
+    "fashion_mnist": ROOT / "data/FashionMNIST/raw/train-images-idx3-ubyte",
+    "mnist": ROOT / "data/MNIST/raw/train-images-idx3-ubyte",
+    "cifar10": ROOT / "data/cifar-10-batches-py/data_batch_1",
+}
 
 
-def steps_for(stage: str) -> tuple[PipelineStep, ...]:
-    return PIPELINE[:3] if stage == "analyze" else PIPELINE
+def pipeline_for(
+    model_id: str = "fashion_cnn", dataset_id: str = "fashion_mnist"
+) -> tuple[PipelineStep, ...]:
+    """Pipeline whose expected outputs are isolated per model/dataset selection."""
+    paths = experiment_paths(model_id, dataset_id)
+    dataset = DATASET_REGISTRY.get(dataset_id)
+    return (
+        PipelineStep(
+            "data",
+            f"Prepare the {dataset.display_name} dataset",
+            "scripts.download_data",
+            (DATA_MARKERS[dataset_id],),
+        ),
+        PipelineStep(
+            "baseline",
+            "Train and verify the baseline model",
+            "scripts.train_baseline",
+            (paths.baseline_checkpoint, paths.baseline_metrics),
+        ),
+        PipelineStep(
+            "scan",
+            "Discover failure boundaries",
+            "scripts.search_failures",
+            (paths.failure_analysis, paths.failure_report),
+        ),
+        PipelineStep(
+            "repair",
+            "Select targeted repairs and fine-tune",
+            "scripts.repair_model",
+            (paths.repaired_checkpoint, paths.repair_plan),
+        ),
+        PipelineStep(
+            "compare",
+            "Re-scan and compare the repaired model",
+            "scripts.compare_repair",
+            (paths.repair_comparison, paths.repair_report),
+        ),
+    )
 
 
-def command_for(step: PipelineStep, baseline_epochs: int | None = None) -> list[str]:
-    command = [sys.executable, "-m", step.module]
+def steps_for(
+    stage: str, model_id: str = "fashion_cnn", dataset_id: str = "fashion_mnist"
+) -> tuple[PipelineStep, ...]:
+    pipeline = pipeline_for(model_id, dataset_id)
+    if stage == "baseline":
+        return pipeline[:2]
+    return pipeline[:3] if stage == "analyze" else pipeline
+
+
+def generate_baseline_report(metrics_path: Path, output_path: Path) -> Path:
+    metrics = _load_json(metrics_path)
+    model = metrics.get("model", {})
+    dataset = metrics.get("dataset", {})
+    test = metrics.get("test", {})
+    split = metrics.get("split", {})
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        "\n".join(
+            [
+                "# FailureAtlas 基准训练报告",
+                "",
+                f"- 模型：{model.get('display_name', model.get('model_id', 'unknown'))}",
+                f"- 数据集：{dataset.get('display_name', dataset.get('dataset_id', 'unknown'))}",
+                f"- Accuracy：{test.get('accuracy', 0):.4f}",
+                f"- Macro-F1：{test.get('macro_f1', 0):.4f}",
+                f"- 参数量：{model.get('parameter_count', 'unknown')}",
+                f"- 随机种子：{split.get('seed', 'unknown')}",
+                "",
+                "该运行只建立基准模型；失效边界、修复方案与修复验证尚未执行。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return output_path
+
+
+def command_for(
+    step: PipelineStep,
+    baseline_epochs: int | None = None,
+    model_id: str = "fashion_cnn",
+    dataset_id: str = "fashion_mnist",
+    seed: int = 42,
+    batch_size: int | None = None,
+    perturbations: tuple[str, ...] | None = None,
+    severity_scale: float = 1.0,
+) -> list[str]:
+    command = [sys.executable, "-m", step.module, "--model", model_id, "--dataset", dataset_id]
     if step.key == "baseline" and baseline_epochs is not None:
         command.extend(["--epochs", str(baseline_epochs)])
+    if step.key in {"baseline", "scan", "repair", "compare"}:
+        command.extend(["--seed", str(seed)])
+    if batch_size is not None and step.key in {"baseline", "scan", "repair", "compare"}:
+        command.extend(["--batch-size", str(batch_size)])
+    if step.key in {"scan", "compare"}:
+        command.extend(["--severity-scale", str(severity_scale)])
+        for perturbation in perturbations or ():
+            command.extend(["--perturbation", perturbation])
     return command
 
 
@@ -105,16 +156,32 @@ def print_plan(
     baseline_epochs: int | None = None,
     model_id: str = "fashion_cnn",
     dataset_id: str = "fashion_mnist",
+    seed: int = 42,
+    batch_size: int | None = None,
+    perturbations: tuple[str, ...] | None = None,
+    severity_scale: float = 1.0,
 ) -> None:
-    validate_selection(model_id, dataset_id)
+    validate_selection(model_id, dataset_id, perturbations)
+    paths = experiment_paths(model_id, dataset_id)
     print(f"FailureAtlas local agent plan ({stage})")
     print(f"  selection. model={model_id}, dataset={dataset_id}")
-    for index, step in enumerate(steps_for(stage), start=1):
+    for index, step in enumerate(steps_for(stage, model_id, dataset_id), start=1):
         status = "ready" if step.ready else "pending"
-        command = " ".join(command_for(step, baseline_epochs))
+        command = " ".join(
+            command_for(
+                step,
+                baseline_epochs,
+                model_id,
+                dataset_id,
+                seed,
+                batch_size,
+                perturbations,
+                severity_scale,
+            )
+        )
         print(f"  {index}. [{status}] {step.title}")
         print(f"     {command}")
-    print("  report. Generate reports/generated/agent_report.md")
+    print(f"  report. Generate {_display_path(paths.agent_report)}")
 
 
 def run_pipeline(
@@ -125,37 +192,82 @@ def run_pipeline(
     baseline_epochs: int | None = None,
     model_id: str = "fashion_cnn",
     dataset_id: str = "fashion_mnist",
+    seed: int = 42,
+    batch_size: int | None = None,
+    perturbations: tuple[str, ...] | None = None,
+    severity_scale: float = 1.0,
     run_id: str | None = None,
     runs_root: str | Path | None = None,
 ) -> Path | None:
-    validate_selection(model_id, dataset_id)
-    print_plan(stage, baseline_epochs, model_id, dataset_id)
+    validate_selection(model_id, dataset_id, perturbations)
+    print_plan(
+        stage,
+        baseline_epochs,
+        model_id,
+        dataset_id,
+        seed,
+        batch_size,
+        perturbations,
+        severity_scale,
+    )
     if dry_run:
         return None
 
+    paths = experiment_paths(model_id, dataset_id)
     workspace = create_run_workspace(
         runs_root or ROOT / "runs",
         model_id=model_id,
         dataset_id=dataset_id,
         stage=stage,
+        seed=seed,
+        batch_size=batch_size,
+        severity_scale=severity_scale,
+        perturbation_ids=perturbations,
         run_id=run_id,
     )
     print(f"[run]  workspace={workspace.path}")
+    # Once a step re-runs, every later step is stale and must re-run too.
+    rerun = force
     try:
-        for step in steps_for(stage):
-            if step.ready and not force:
+        for step in steps_for(stage, model_id, dataset_id):
+            if step.ready and not rerun:
                 print(f"[skip] {step.title}: expected outputs already exist")
                 continue
-            command = command_for(step, baseline_epochs)
+            rerun = True
+            command = command_for(
+                step,
+                baseline_epochs,
+                model_id,
+                dataset_id,
+                seed,
+                batch_size,
+                perturbations,
+                severity_scale,
+            )
             print(f"[run]  {step.title}")
             subprocess.run(command, cwd=ROOT, check=True)
             if not step.ready:
-                missing = [str(path.relative_to(ROOT)) for path in step.outputs if not path.exists()]
+                missing = [_display_path(path) for path in step.outputs if not path.exists()]
                 raise RuntimeError(f"Step '{step.key}' completed without outputs: {missing}")
 
-        report = generate_agent_report()
-        archived = _archive_current_outputs(workspace, report)
-        required = ("config.yaml", "metadata.json", "failure_analysis.json", "agent_report.md")
+        report = (
+            generate_baseline_report(paths.baseline_metrics, paths.agent_report)
+            if stage == "baseline"
+            else generate_agent_report(
+                paths.failure_analysis,
+                paths.repair_comparison,
+                paths.agent_report,
+                model_id=model_id,
+                dataset_id=dataset_id,
+                include_comparison=stage == "full",
+            )
+        )
+        archived = _archive_current_outputs(workspace, report, paths, stage)
+        required = (
+            ("config.yaml", "metadata.json", "baseline_metrics.json", "agent_report.md")
+            if stage == "baseline"
+            else ("config.yaml", "metadata.json", "failure_analysis.json", "agent_report.md")
+        )
         validate_run_artifacts(workspace, required)
         finalize_run(workspace, status="completed", artifacts=archived)
         run_report = workspace.path / "agent_report.md"
@@ -166,17 +278,36 @@ def run_pipeline(
         raise
 
 
-def _archive_current_outputs(workspace: RunWorkspace, report: Path) -> list[str]:
+def archive_sources(paths: ExperimentPaths, report: Path, stage: str) -> dict[str, Path]:
+    """Files a run archives. Repair evidence belongs only to full runs: an analyze
+    run must not pick up leftovers from an earlier full run of the same selection."""
     sources = {
-        "baseline_metrics.json": ROOT / "artifacts/baseline_metrics.json",
-        "failure_analysis.json": ROOT / "reports/generated/failure_analysis.json",
-        "repair_plan.json": ROOT / "artifacts/repair_plan.json",
-        "repair_comparison.json": ROOT / "reports/generated/repair_comparison.json",
+        "baseline_metrics.json": paths.baseline_metrics,
         "agent_report.md": report,
-        "plots/failure_curves.png": ROOT / "reports/generated/failure_curves.png",
-        "plots/repair_comparison.png": ROOT / "reports/generated/repair_comparison.png",
     }
-    return archive_run_artifacts(workspace, sources)
+    if stage == "baseline":
+        return sources
+    sources.update(
+        {
+            "failure_analysis.json": paths.failure_analysis,
+            "plots/failure_curves.png": paths.failure_curves,
+        }
+    )
+    if stage == "full":
+        sources.update(
+            {
+                "repair_plan.json": paths.repair_plan,
+                "repair_comparison.json": paths.repair_comparison,
+                "plots/repair_comparison.png": paths.repair_comparison_plot,
+            }
+        )
+    return sources
+
+
+def _archive_current_outputs(
+    workspace: RunWorkspace, report: Path, paths: ExperimentPaths, stage: str
+) -> list[str]:
+    return archive_run_artifacts(workspace, archive_sources(paths, report, stage))
 
 
 def print_catalog() -> None:
@@ -206,6 +337,23 @@ def _display_path(path: Path) -> str:
         return str(path.resolve())
 
 
+LIMITATIONS = [
+    "## Limitations",
+    "",
+    "- Repair augmentations come from the same perturbation families that the scan "
+    "measures, so boundary movement shows robustness to *known* shifts, not "
+    "generalization to unseen ones.",
+    "- Failure boundaries are measured on the test split with a single fixed seed; "
+    "no confidence intervals are reported.",
+    "- A validation split is held out of both baseline training and repair; "
+    "repair checkpoints are selected on it, and the test split is used only for "
+    "final reporting. The baseline therefore trains on less data than the full "
+    "training split.",
+    "- A better severe boundary does not imply every metric improved; check the clean "
+    "accuracy change and per-perturbation endpoint changes above.",
+]
+
+
 def _boundary(value: float | None) -> str:
     return "not reached" if value is None else f"{value:g}"
 
@@ -214,13 +362,19 @@ def generate_agent_report(
     analysis_path: Path | None = None,
     comparison_path: Path | None = None,
     output_path: Path | None = None,
+    *,
+    model_id: str = "fashion_cnn",
+    dataset_id: str = "fashion_mnist",
+    include_comparison: bool = True,
 ) -> Path:
-    analysis_path = analysis_path or ROOT / "reports/generated/failure_analysis.json"
-    comparison_path = comparison_path or ROOT / "reports/generated/repair_comparison.json"
-    output_path = output_path or ROOT / "reports/generated/agent_report.md"
+    paths = experiment_paths(model_id, dataset_id)
+    analysis_path = analysis_path or paths.failure_analysis
+    comparison_path = comparison_path or paths.repair_comparison
+    output_path = output_path or paths.agent_report
     if not analysis_path.exists():
         raise FileNotFoundError(
-            "No failure analysis found. Run `python -m failure_atlas.agent run --stage analyze` first."
+            f"No failure analysis found. Run `python -m failure_atlas.agent run --stage analyze "
+            f"--model {model_id} --dataset {dataset_id}` first."
         )
 
     analysis = _load_json(analysis_path)
@@ -261,7 +415,11 @@ def generate_agent_report(
             f"score {action['vulnerability_score']:.3f}. {action['rationale']}"
         )
 
-    comparison = _load_json(comparison_path) if comparison_path.exists() else None
+    comparison = (
+        _load_json(comparison_path)
+        if include_comparison and comparison_path.exists()
+        else None
+    )
     if comparison:
         repaired = comparison["repaired"]
         clean_delta = repaired["baseline"]["accuracy"] - baseline["accuracy"]
@@ -285,18 +443,20 @@ def generate_agent_report(
             endpoint_delta = after["results"][-1]["accuracy"] - before["results"][-1]["accuracy"]
             lines.append(f"| {DISPLAY_NAMES[name]} | {movement} | {endpoint_delta:+.2%} |")
 
+    lines.extend(["", *LIMITATIONS])
     lines.extend(
         [
             "",
             "## Reproduce locally",
             "",
             "```powershell",
-            "python -m failure_atlas.agent plan --stage full",
-            "python -m failure_atlas.agent run --stage full",
+            f"python -m failure_atlas.agent plan --stage full --model {model_id} --dataset {dataset_id}",
+            f"python -m failure_atlas.agent run --stage full --model {model_id} --dataset {dataset_id}",
             "```",
             "",
-            "Generated artifacts remain local by default under `artifacts/` and "
-            "`reports/generated/` so model weights and datasets are not accidentally committed.",
+            "Generated artifacts remain local by default under "
+            f"`{_display_path(paths.artifact_dir)}` and `{_display_path(paths.report_dir)}` "
+            "so model weights and datasets are not accidentally committed.",
             "",
         ]
     )
@@ -329,10 +489,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("plan", "run"):
         subparser = subparsers.add_parser(command)
-        subparser.add_argument("--stage", choices=("analyze", "full"), default="full")
+        subparser.add_argument("--stage", choices=("baseline", "analyze", "full"), default="full")
         subparser.add_argument("--baseline-epochs", type=int)
         subparser.add_argument("--model", default="fashion_cnn")
         subparser.add_argument("--dataset", default="fashion_mnist")
+        subparser.add_argument("--seed", type=int, default=42)
+        subparser.add_argument("--batch-size", type=int)
+        subparser.add_argument("--perturbation", action="append", dest="perturbations")
+        subparser.add_argument("--severity-scale", type=float, default=1.0)
         if command == "run":
             subparser.add_argument("--force", action="store_true")
             subparser.add_argument("--dry-run", action="store_true")
@@ -344,13 +508,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     validate.add_argument("--perturbation", action="append", dest="perturbations")
     report = subparsers.add_parser("report")
     report.add_argument("--output", type=Path)
+    report.add_argument("--model", default="fashion_cnn")
+    report.add_argument("--dataset", default="fashion_mnist")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if args.command == "plan":
-        print_plan(args.stage, args.baseline_epochs, args.model, args.dataset)
+        print_plan(
+            args.stage,
+            args.baseline_epochs,
+            args.model,
+            args.dataset,
+            args.seed,
+            args.batch_size,
+            tuple(args.perturbations) if args.perturbations else None,
+            args.severity_scale,
+        )
     elif args.command == "run":
         run_pipeline(
             args.stage,
@@ -359,6 +534,10 @@ def main(argv: list[str] | None = None) -> None:
             baseline_epochs=args.baseline_epochs,
             model_id=args.model,
             dataset_id=args.dataset,
+            seed=args.seed,
+            batch_size=args.batch_size,
+            perturbations=tuple(args.perturbations) if args.perturbations else None,
+            severity_scale=args.severity_scale,
             run_id=args.run_id,
         )
     elif args.command == "catalog":
@@ -371,7 +550,9 @@ def main(argv: list[str] | None = None) -> None:
         )
         print(f"Valid selection: model={args.model}, dataset={args.dataset}")
     else:
-        generate_agent_report(output_path=args.output)
+        generate_agent_report(
+            output_path=args.output, model_id=args.model, dataset_id=args.dataset
+        )
 
 
 if __name__ == "__main__":

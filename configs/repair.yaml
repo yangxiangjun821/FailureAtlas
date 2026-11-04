@@ -7,7 +7,3 @@ repair:
   top_k: 3
   device: auto
   data_dir: data
-  baseline_checkpoint: artifacts/baseline_fashion_cnn.pt
-  analysis: reports/generated/failure_analysis.json
-  repaired_checkpoint: artifacts/repaired_fashion_cnn.pt
-  repair_plan: artifacts/repair_plan.json

@@ -94,7 +94,21 @@ def write_comparison_report(path: Path, comparison: dict) -> None:
             - before_experiment["results"][-1]["accuracy"]
         )
         lines.append(f"| {DISPLAY_NAMES[name]} | {movement} | {end_delta:+.2%} |")
-    lines.extend(["", "![Repair comparison](repair_comparison.png)", ""])
+    lines.extend(
+        [
+            "",
+            "## Limitations",
+            "",
+            "- Repair augmentations use the same perturbation families as the scan, so "
+            "this measures robustness to known shifts, not unseen ones.",
+            "- Results use one fixed seed on the test split, without confidence intervals.",
+            "- The repaired checkpoint was selected on a validation split held out of both "
+            "baseline training and repair, not on the test split.",
+            "",
+            "![Repair comparison](repair_comparison.png)",
+            "",
+        ]
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
 

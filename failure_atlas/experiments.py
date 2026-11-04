@@ -43,6 +43,8 @@ def create_run_workspace(
     perturbation_ids: tuple[str, ...] | None = None,
     stage: str,
     seed: int = 42,
+    batch_size: int | None = None,
+    severity_scale: float = 1.0,
     run_id: str | None = None,
 ) -> RunWorkspace:
     model, dataset, perturbations = validate_selection(
@@ -68,6 +70,8 @@ def create_run_workspace(
         "perturbations": [spec.id for spec in perturbations],
         "stage": stage,
         "seed": seed,
+        "batch_size": batch_size,
+        "severity_scale": severity_scale,
     }
     (workspace_path / "config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"

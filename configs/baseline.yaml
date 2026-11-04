@@ -5,5 +5,5 @@ training:
   learning_rate: 0.001
   num_workers: 0
   data_dir: data
-  artifact_dir: artifacts
   device: auto
+  val_fraction: 0.1

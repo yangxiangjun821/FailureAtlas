@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
@@ -20,10 +21,14 @@ class FailureLevels:
     severe: float = 0.20
 
 
-def normalize(images: torch.Tensor) -> torch.Tensor:
-    mean = torch.tensor(NORMALIZE_MEAN, device=images.device).view(1, -1, 1, 1)
-    std = torch.tensor(NORMALIZE_STD, device=images.device).view(1, -1, 1, 1)
-    return (images - mean) / std
+def normalize(
+    images: torch.Tensor,
+    mean: Sequence[float] = NORMALIZE_MEAN,
+    std: Sequence[float] = NORMALIZE_STD,
+) -> torch.Tensor:
+    mean_tensor = torch.tensor(mean, device=images.device).view(1, -1, 1, 1)
+    std_tensor = torch.tensor(std, device=images.device).view(1, -1, 1, 1)
+    return (images - mean_tensor) / std_tensor
 
 
 def expected_calibration_error(
@@ -52,6 +57,9 @@ def evaluate_perturbation(
     perturbation: str,
     severity: float,
     seed: int,
+    class_names: Sequence[str] = FASHION_MNIST_CLASSES,
+    mean: Sequence[float] = NORMALIZE_MEAN,
+    std: Sequence[float] = NORMALIZE_STD,
 ) -> dict:
     if perturbation not in PERTURBATIONS:
         raise ValueError(f"Unknown perturbation: {perturbation}")
@@ -65,7 +73,7 @@ def evaluate_perturbation(
     for images, targets in loader:
         images = images.to(device, non_blocking=True)
         shifted = transform(images, severity, generator)
-        logits = model(normalize(shifted))
+        logits = model(normalize(shifted, mean, std))
         probabilities = logits.softmax(dim=1)
         confidences, predictions = probabilities.max(dim=1)
         predictions_all.append(predictions.cpu())
@@ -76,10 +84,12 @@ def evaluate_perturbation(
     targets = torch.cat(targets_all)
     confidences = torch.cat(confidences_all)
     correct = predictions.eq(targets)
-    matrix = confusion_matrix(targets.numpy(), predictions.numpy(), labels=list(range(10)))
+    matrix = confusion_matrix(
+        targets.numpy(), predictions.numpy(), labels=list(range(len(class_names)))
+    )
     per_class = {
         name: float(matrix[index, index] / max(matrix[index].sum(), 1))
-        for index, name in enumerate(FASHION_MNIST_CLASSES)
+        for index, name in enumerate(class_names)
     }
     return {
         "accuracy": float(correct.float().mean()),

@@ -2,14 +2,14 @@ search:
   seed: 42
   batch_size: 512
   num_workers: 0
-  checkpoint: artifacts/baseline_fashion_cnn.pt
   data_dir: data
-  output_dir: reports/generated
   device: auto
   failure_drops:
     mild: 0.03
     obvious: 0.10
     severe: 0.20
+  # Stronger settings scanned beyond the calibrated range. The grid up to strength 1
+  # (equal pixel-space RMSE across perturbations) comes from configs/calibration/.
   severities:
     rotation: [0, 5, 10, 15, 20, 30, 45, 60]
     gaussian_noise: [0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.60, 0.80]
