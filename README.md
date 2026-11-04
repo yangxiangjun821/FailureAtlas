@@ -199,18 +199,21 @@ Git because the hosted Sites workflow maintains its own internal repository.
 ## GitHub publishing checklist
 
 The repository ignores virtual environments, package caches, datasets, trained
-weights, generated reports, exported model bundles, and deployment archives. Before
-the first push, review the files Git will publish:
+weights, generated reports, exported model bundles, and deployment archives. The
+tracked files are source, configuration, calibration tables, documentation, and the
+small `deploy/dashboard.json` snapshot that `render.yaml` serves in demo mode.
+
+Create an empty repository on GitHub (without a README or license), then:
 
 ```powershell
-git init
-git add .
-git status
-git commit -m "Add local FailureAtlas agent"
-git branch -M main
+git status                      # should be clean
+git log --format="%an <%ae>"    # authors that become public
 git remote add origin https://github.com/YOUR_USERNAME/failure-atlas.git
 git push -u origin main
 ```
+
+To keep your email private, switch the commit identity to your GitHub `noreply`
+address before the first push and rewrite the existing commits' author.
 
 Do not commit `.env` files, API keys, downloaded datasets, or trained weights. No
 open-source license has been selected yet; add one before accepting outside reuse or
