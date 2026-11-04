@@ -17,7 +17,7 @@ def main() -> None:
     (DIST / "reports").mkdir(parents=True, exist_ok=True)
 
     index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    marker = '<script src="/static/app.js" defer></script>'
+    marker = '<script src="static/app.js" defer></script>'
     index = index.replace(
         marker,
         '<script>window.FAILUREATLAS_STATIC = true;</script>\n    ' + marker,

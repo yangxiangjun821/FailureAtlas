@@ -16,25 +16,33 @@
           <span>FailureAtlas</span>
         </div>
         <nav>
-          <a class="nav-item active" href="#overview" aria-current="page">
+          <a class="nav-item active" href="/dashboard/overview" data-view="overview" aria-current="page">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>
             总览
           </a>
-          <a class="nav-item" href="#boundaries">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 9 6l4 8 3-5 4 9H4Z"/></svg>
-            失效边界
+          <a class="nav-item" href="/dashboard/new" data-view="new">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4Z"/></svg>
+            新建实验
           </a>
-          <a class="nav-item" href="#agent">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 0-4 4v1H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2V7a4 4 0 0 0-4-4Zm-1 12H8v-2h3v2Zm5 0h-3v-2h3v2Zm-2-7h-4V7a2 2 0 1 1 4 0v1Z"/></svg>
-            修复智能体
+          <a class="nav-item" href="/dashboard/runs" data-view="runs">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v3H5V4Zm0 5h14v11H5V9Zm3 3v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
+            实验记录
           </a>
-          <a class="nav-item" href="#projects">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4H4V5Zm0 6h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8Zm4 3v2h5v-2H8Z"/></svg>
-            模型项目
+          <a class="nav-item" href="/dashboard/comparison" data-view="comparison">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h6v6H5V4Zm8 10h6v6h-6v-6ZM7 12h2v5h2v2H5v-2h2v-5Zm8-7h4v7h-2V7h-2V5Z"/></svg>
+            对比分析
           </a>
-          <a class="nav-item" href="#roadmap">
+          <a class="nav-item" href="/dashboard/reports" data-view="reports">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Zm8 2H8v14h9V8h-3V5Zm-4 7h5v2h-5v-2Zm0 4h5v2h-5v-2Z"/></svg>
+            报告中心
+          </a>
+          <a class="nav-item" href="/dashboard/catalog" data-view="catalog">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"/></svg>
+            模型与数据
+          </a>
+          <a class="nav-item" href="/dashboard/system" data-view="system">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v2h3v16H4V5h3V3Zm2 2h6V4H9v1Zm-2 3v11h10V8H7Zm2 2h6v2H9v-2Zm0 4h6v2H9v-2Z"/></svg>
-            实验计划
+            系统检查
           </a>
         </nav>
         <div class="sidebar-meta">
@@ -50,10 +58,11 @@
             <p id="model-meta">正在读取实验产物…</p>
           </div>
           <div class="topbar-actions">
-            <a class="button secondary" href="/reports/repair_report.md" target="_blank">查看报告</a>
+            <a class="button secondary" href="/dashboard/reports">报告中心</a>
             <button class="button secondary" id="import-button" type="button">导入模型包</button>
             <input id="bundle-input" type="file" accept=".fatlas,.zip,application/zip" hidden />
-            <button class="button primary" id="repair-button" type="button">启动自动修复</button>
+            <a class="button primary" href="/dashboard/new">新建实验</a>
+            <button class="button secondary" id="repair-button" type="button">快速修复</button>
           </div>
         </header>
 
@@ -74,10 +83,35 @@
             </div>
             <dl class="quality-strip">
               <div><dt>干净准确率</dt><dd id="clean-after">—</dd><small id="clean-delta">—</small></div>
-              <div><dt>旋转严重边界</dt><dd id="rotation-boundary">—</dd><small>修复前 → 修复后</small></div>
-              <div><dt>噪声严重边界</dt><dd id="noise-boundary">—</dd><small>修复前 → 修复后</small></div>
-              <div><dt>模糊严重边界</dt><dd id="blur-boundary">—</dd><small>修复前 → 修复后</small></div>
+              <div><dt>Macro-F1</dt><dd id="macro-f1">—</dd><small>基准测试集</small></div>
+              <div><dt>校准误差 ECE</dt><dd id="clean-ece">—</dd><small>越低越好</small></div>
+              <div><dt>模型参数量</dt><dd id="parameter-count">—</dd><small>当前模型</small></div>
+              <div><dt>单样本推理</dt><dd id="inference-speed">—</dd><small>真实测试批次</small></div>
             </dl>
+          </section>
+
+          <section class="experiment-section" id="experiment-config" aria-labelledby="experiment-title">
+            <div class="section-heading">
+              <div><h2 id="experiment-title">配置新实验</h2><p>选择已验证的模型—数据组合，运行边界分析或完整修复闭环。</p></div>
+              <span class="local-badge">本地智能体</span>
+            </div>
+            <form id="experiment-form" class="experiment-form">
+              <label><span>模型</span><select id="experiment-model" name="model" required></select></label>
+              <label><span>数据集</span><select id="experiment-dataset" name="dataset" required></select></label>
+              <label><span>实验模式</span><select id="experiment-stage" name="stage"><option value="baseline">仅基准训练</option><option value="analyze">失效边界分析</option><option value="full">完整诊断与修复</option></select></label>
+              <label><span>训练轮数</span><input id="experiment-epochs" name="epochs" type="number" min="1" max="100" placeholder="使用配置默认值" /></label>
+              <label><span>随机种子</span><input id="experiment-seed" name="seed" type="number" min="0" max="2147483647" value="42" /></label>
+              <label><span>批量大小</span><input id="experiment-batch-size" name="batch_size" type="number" min="1" max="4096" placeholder="使用配置默认值" /></label>
+              <label><span>扰动强度倍率</span><input id="experiment-severity" name="severity_scale" type="number" min="0.25" max="2" step="0.25" value="1" /></label>
+              <label><span>已有产物</span><select id="experiment-reuse" name="reuse_artifacts"><option value="true">复用可用权重与结果</option><option value="false">从头重新运行</option></select></label>
+              <fieldset class="perturbation-field"><legend>扰动类型</legend><div id="experiment-perturbations"></div></fieldset>
+              <label class="run-id-field"><span>Run ID</span><input id="experiment-run-id" name="run_id" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}" placeholder="自动生成，或输入如 lenet-mnist-01" /></label>
+              <div class="experiment-submit">
+                <div id="selection-status" class="selection-status" role="status">正在读取模型目录…</div>
+                <button class="button primary" id="experiment-submit" type="submit">启动实验</button>
+              </div>
+              <div class="preflight-panel" id="preflight-panel" role="status"><span>正在准备运行预检…</span></div>
+            </form>
           </section>
 
           <section class="workspace" id="boundaries">
@@ -103,7 +137,7 @@
             </aside>
           </section>
 
-          <section class="boundary-section" aria-labelledby="boundary-title">
+          <section class="boundary-section" id="boundary-detail" aria-labelledby="boundary-title">
             <div class="section-heading"><div><h2 id="boundary-title">边界移动明细</h2><p>严重失效定义为相对干净准确率下降至少 20 个百分点。</p></div></div>
             <div class="table-scroll">
               <table>
@@ -127,50 +161,113 @@
             <div class="project-list" id="project-list"></div>
           </section>
 
+          <section class="catalog-section" id="catalog" aria-labelledby="catalog-title">
+            <div class="section-heading">
+              <div><h2 id="catalog-title">模型与数据目录</h2><p>所有选项来自 Python 注册表；缓存状态来自本地文件，不使用前端占位数据。</p></div>
+            </div>
+            <div class="catalog-grid" id="model-catalog"></div>
+            <div class="table-scroll compatibility-table">
+              <table><thead id="compatibility-head"></thead><tbody id="compatibility-body"></tbody></table>
+            </div>
+          </section>
+
+          <section class="runs-section" id="runs" aria-labelledby="runs-title">
+            <div class="section-heading">
+              <div><h2 id="runs-title">实验记录</h2><p>每条记录对应一个独立的 <code>runs/&lt;run_id&gt;/</code> 目录。</p></div>
+              <span class="run-count" id="run-count">0 条记录</span>
+            </div>
+            <div class="run-toolbar" aria-label="实验筛选">
+              <label><span>搜索</span><input id="run-search" type="search" placeholder="Run ID" /></label>
+              <label><span>模型</span><select id="run-model-filter"><option value="">全部模型</option></select></label>
+              <label><span>数据集</span><select id="run-dataset-filter"><option value="">全部数据集</option></select></label>
+              <label><span>状态</span><select id="run-status-filter"><option value="">全部状态</option><option value="completed">已完成</option><option value="failed">失败</option><option value="running">运行中</option></select></label>
+              <label><span>日期</span><input id="run-date-filter" type="date" /></label>
+              <button class="button secondary compact-button" id="compare-selected" type="button" disabled>对比所选实验</button>
+            </div>
+            <div class="table-scroll"><table><thead><tr><th class="select-column"><span class="sr-only">选择</span></th><th>Run ID</th><th>模型</th><th>数据集</th><th>阶段</th><th>Accuracy</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="runs-table"></tbody></table></div>
+          </section>
+
+          <section class="run-detail-section" id="run-detail" hidden aria-labelledby="run-detail-title">
+            <div class="section-heading">
+              <div><h2 id="run-detail-title">实验详情</h2><p id="run-detail-meta">选择一条实验记录查看完整证据。</p></div>
+              <button class="button secondary compact-button" id="close-run-detail" type="button">关闭详情</button>
+            </div>
+            <div class="detail-metrics" id="run-detail-metrics"></div>
+            <div class="detail-grid">
+              <div><h3>失效边界</h3><div class="table-scroll"><table><thead><tr><th>扰动</th><th>严重边界</th><th>修复后</th><th>端点变化</th></tr></thead><tbody id="run-detail-boundaries"></tbody></table></div></div>
+              <div><h3>实验产物</h3><div class="artifact-list" id="run-detail-artifacts"></div></div>
+            </div>
+            <div class="detail-evidence">
+              <div><h3>实验配置与环境</h3><dl class="metadata-grid" id="run-detail-metadata"></dl></div>
+              <div><h3>修复策略</h3><div class="repair-detail-list" id="run-detail-repairs"></div></div>
+            </div>
+            <div class="plot-gallery" id="run-detail-plots"></div>
+            <div class="run-error" id="run-detail-error" hidden></div>
+          </section>
+
+          <section class="comparison-section" id="comparison" aria-labelledby="comparison-title">
+            <div class="section-heading">
+              <div><h2 id="comparison-title">对比分析</h2><p>在实验记录中选择 2–6 个相同数据集的实验。不同任务不会被强行排名。</p></div>
+              <span class="comparison-state" id="comparison-state">等待选择</span>
+            </div>
+            <div class="comparison-empty" id="comparison-empty">选择实验后，这里将并排展示 Accuracy、Macro-F1、ECE、参数量与各类失效边界。</div>
+            <div class="table-scroll" id="comparison-result" hidden><table><thead id="comparison-head"></thead><tbody id="comparison-body"></tbody></table></div>
+          </section>
+
+          <section class="report-section" id="report-center" aria-labelledby="report-title">
+            <div class="section-heading"><div><h2 id="report-title">报告中心</h2><p>集中查看每次实验生成的 Markdown 报告、JSON 证据和图表。</p></div></div>
+            <div class="report-list" id="report-list"></div>
+          </section>
+
+          <section class="system-section" id="system-check" aria-labelledby="system-title">
+            <div class="section-heading"><div><h2 id="system-title">系统检查</h2><p>实验启动前确认运行时、GPU 和本地空间状态。</p></div></div>
+            <dl class="system-grid" id="system-grid"></dl>
+          </section>
+
           <section class="roadmap-section" id="roadmap" aria-labelledby="roadmap-title">
             <div class="section-heading roadmap-heading">
               <div>
                 <h2 id="roadmap-title">下一阶段实验计划</h2>
                 <p>把单一模型演示扩展为可切换、可复现的模型与数据集研究台。</p>
               </div>
-              <span class="roadmap-count">2 项待办</span>
+              <span class="roadmap-count">2 项进行中</span>
             </div>
 
             <div class="roadmap-list">
-              <article class="roadmap-row" id="todo-model-catalog">
-                <div class="roadmap-status"><span>待办</span><small>模型系统</small></div>
+              <article class="roadmap-row" id="roadmap-model-catalog">
+                <div class="roadmap-status"><span>进行中</span><small>模型系统</small></div>
                 <div class="roadmap-body">
-                  <h3>建立主流模型目录与网页切换器</h3>
-                  <p>总结不同任务中的代表模型，并在网站中直接选择模型运行同一套失效边界实验。首批覆盖 CNN、ResNet、ViT、RNN/LSTM、Transformer 与 MLP；跨任务模型仅在对应数据适配器完成后开放。</p>
+                  <h3>主流模型目录与网页切换器</h3>
+                  <p>FashionCNN、LeNet 与 ResNet-18 已接入模型注册表，可在 Dashboard 直接切换兼容模型与数据集，并运行同一套失效边界实验。ViT、RNN/LSTM、Transformer 与 MLP 等跨任务模型仍需先完成对应数据适配器。</p>
                   <div class="roadmap-scope" aria-label="模型任务范围">
-                    <span>图像分类</span><span>序列建模</span><span>表格数据</span>
+                    <span>图像分类 · 已接入</span><span>序列建模 · 规划中</span><span>表格数据 · 规划中</span>
                   </div>
                 </div>
                 <div class="roadmap-acceptance">
                   <strong>完成标准</strong>
                   <ul>
-                    <li>页面可直接更换模型与配置</li>
-                    <li>统一扰动、阈值与评估指标</li>
-                    <li>并排比较精度、边界和参数量</li>
+                    <li>页面可直接更换模型与配置（已完成）</li>
+                    <li>统一扰动、阈值与评估指标（命令行已完成）</li>
+                    <li>并排比较精度、边界和参数量（已完成）</li>
                   </ul>
                 </div>
               </article>
 
-              <article class="roadmap-row" id="todo-dataset-library">
-                <div class="roadmap-status"><span>待办</span><small>数据系统</small></div>
+              <article class="roadmap-row" id="roadmap-dataset-library">
+                <div class="roadmap-status"><span>进行中</span><small>数据系统</small></div>
                 <div class="roadmap-body">
-                  <h3>准备多数据集测试库</h3>
-                  <p>建立统一的数据集清单、下载校验、预处理和缓存接口。第一批接入 MNIST、Fashion-MNIST、CIFAR-10、CIFAR-100 与 SVHN；后续在定义文本和表格扰动后扩展 AG News 与 UCI Adult。</p>
+                  <h3>多数据集测试库</h3>
+                  <p>MNIST、Fashion-MNIST 与 CIFAR-10 已通过统一的数据集适配器接入，并记录各自的归一化参数。CIFAR-100 与 SVHN 尚未接入；文本和表格数据集需先定义对应扰动。</p>
                   <div class="roadmap-scope" aria-label="首批数据集">
-                    <span>MNIST</span><span>Fashion-MNIST</span><span>CIFAR-10</span><span>CIFAR-100</span><span>SVHN</span>
+                    <span>MNIST · 已接入</span><span>Fashion-MNIST · 已接入</span><span>CIFAR-10 · 已接入</span><span>CIFAR-100 · 待接入</span><span>SVHN · 待接入</span>
                   </div>
                 </div>
                 <div class="roadmap-acceptance">
                   <strong>完成标准</strong>
                   <ul>
-                    <li>网页可选择并检查数据集状态</li>
-                    <li>自动下载、校验与本地缓存</li>
-                    <li>保存版本、划分和预处理记录</li>
+                    <li>网页可选择并检查数据集状态（已完成）</li>
+                    <li>自动下载、校验与本地缓存（已完成）</li>
+                    <li>保存版本、划分和预处理记录（预处理已完成）</li>
                   </ul>
                 </div>
               </article>
