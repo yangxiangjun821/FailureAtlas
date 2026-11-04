@@ -18,6 +18,9 @@ class TrainConfig:
     data_dir: str = "data"
     artifact_dir: str = "artifacts"
     device: str = "auto"
+    # Fraction of the training split held out for validation. Neither the baseline
+    # nor the repair trains on it; the test split is only used for final reporting.
+    val_fraction: float = 0.1
 
 
 def load_train_config(path: str | Path) -> TrainConfig:

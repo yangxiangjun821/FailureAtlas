@@ -29,6 +29,8 @@ class DatasetSpec:
     num_classes: int
     models: tuple[str, ...]
     perturbations: tuple[str, ...]
+    normalization_mean: tuple[float, ...]
+    normalization_std: tuple[float, ...]
     implemented: bool = True
 
 
@@ -101,7 +103,6 @@ MODEL_REGISTRY.register(
         input_size=(28, 28),
         num_classes=10,
         datasets=("mnist", "fashion_mnist"),
-        implemented=False,
     )
 )
 MODEL_REGISTRY.register(
@@ -114,9 +115,51 @@ MODEL_REGISTRY.register(
         input_size=(32, 32),
         num_classes=10,
         datasets=("cifar10",),
-        implemented=False,
     )
 )
+for modern_model in (
+    ModelSpec(
+        id="mobilenet_v3",
+        display_name="MobileNetV3-Small",
+        task="image_classification",
+        architecture="mobile_cnn",
+        input_channels=3,
+        input_size=(32, 32),
+        num_classes=10,
+        datasets=("cifar10",),
+    ),
+    ModelSpec(
+        id="efficientnet_b0",
+        display_name="EfficientNet-B0",
+        task="image_classification",
+        architecture="compound_scaled_cnn",
+        input_channels=3,
+        input_size=(32, 32),
+        num_classes=10,
+        datasets=("cifar10",),
+    ),
+    ModelSpec(
+        id="convnext_tiny",
+        display_name="ConvNeXt-Tiny",
+        task="image_classification",
+        architecture="modern_convnet",
+        input_channels=3,
+        input_size=(32, 32),
+        num_classes=10,
+        datasets=("cifar10",),
+    ),
+    ModelSpec(
+        id="vit",
+        display_name="ViT-CIFAR",
+        task="image_classification",
+        architecture="vision_transformer",
+        input_channels=3,
+        input_size=(32, 32),
+        num_classes=10,
+        datasets=("cifar10",),
+    ),
+):
+    MODEL_REGISTRY.register(modern_model)
 
 
 IMAGE_PERTURBATIONS = ("rotation", "gaussian_noise", "blur", "occlusion", "brightness")
@@ -131,6 +174,8 @@ DATASET_REGISTRY.register(
         num_classes=10,
         models=("fashion_cnn", "lenet"),
         perturbations=IMAGE_PERTURBATIONS,
+        normalization_mean=(0.2860,),
+        normalization_std=(0.3530,),
     )
 )
 DATASET_REGISTRY.register(
@@ -143,7 +188,8 @@ DATASET_REGISTRY.register(
         num_classes=10,
         models=("fashion_cnn", "lenet"),
         perturbations=IMAGE_PERTURBATIONS,
-        implemented=False,
+        normalization_mean=(0.1307,),
+        normalization_std=(0.3081,),
     )
 )
 DATASET_REGISTRY.register(
@@ -154,24 +200,44 @@ DATASET_REGISTRY.register(
         input_channels=3,
         input_size=(32, 32),
         num_classes=10,
-        models=("resnet18",),
+        models=(
+            "resnet18",
+            "mobilenet_v3",
+            "efficientnet_b0",
+            "convnext_tiny",
+            "vit",
+        ),
         perturbations=IMAGE_PERTURBATIONS,
-        implemented=False,
+        normalization_mean=(0.4914, 0.4822, 0.4465),
+        normalization_std=(0.2470, 0.2435, 0.2616),
     )
 )
 
 
 for perturbation in (
-    PerturbationSpec("rotation", "Rotation", "image_classification", (0, 5, 10, 15, 30, 45)),
     PerturbationSpec(
-        "gaussian_noise", "Gaussian noise", "image_classification", (0, 0.05, 0.1, 0.2, 0.4)
-    ),
-    PerturbationSpec("blur", "Gaussian blur", "image_classification", (0, 0.3, 0.6, 1, 2, 3)),
-    PerturbationSpec(
-        "occlusion", "Center occlusion", "image_classification", (0, 0.05, 0.1, 0.2, 0.4)
+        "rotation", "Rotation", "image_classification", (0, 5, 10, 15, 20, 30, 45, 60)
     ),
     PerturbationSpec(
-        "brightness", "Brightness reduction", "image_classification", (1, 0.8, 0.6, 0.4, 0.2)
+        "gaussian_noise",
+        "Gaussian noise",
+        "image_classification",
+        (0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.60, 0.80),
+    ),
+    PerturbationSpec(
+        "blur", "Gaussian blur", "image_classification", (0, 0.3, 0.6, 1.0, 1.5, 2.0, 3.0)
+    ),
+    PerturbationSpec(
+        "occlusion",
+        "Center occlusion",
+        "image_classification",
+        (0, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60),
+    ),
+    PerturbationSpec(
+        "brightness",
+        "Brightness reduction",
+        "image_classification",
+        (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2),
     ),
 ):
     PERTURBATION_REGISTRY.register(perturbation)
