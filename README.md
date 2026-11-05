@@ -46,9 +46,12 @@ python -m failure_atlas.agent validate --model fashion_cnn --dataset fashion_mni
 ```
 
 The catalog includes FashionCNN, LeNet, ResNet-18, MobileNetV3-Small,
-EfficientNet-B0, ConvNeXt-Tiny, and ViT-CIFAR with Fashion-MNIST, MNIST, and
-CIFAR-10. The four modern vision models currently use from-scratch CIFAR-10
-training; pretrained-weight support is the next Phase E task. See the generated
+EfficientNet-B0, ConvNeXt-Tiny, ViT-CIFAR and ViT-B/16 with Fashion-MNIST, MNIST,
+and CIFAR-10. MobileNetV3-Small, EfficientNet-B0 and ConvNeXt-Tiny support both
+from-scratch CIFAR-10 training and official TorchVision ImageNet weights. ViT-CIFAR is
+a compact transformer and trains from scratch only; ViT-B/16 is the official ImageNet
+network and exists only with pretrained weights, so one model id always names one
+architecture. See the generated
 [compatibility matrix](docs/compatibility-matrix.md) and
 [baseline report](docs/p0-baseline-report.md). The remaining Phase E verification
 steps are tracked in the [modern-model checklist](docs/stage-e-checklist.md).
@@ -59,6 +62,26 @@ Train a selected baseline without changing Python code:
 python -m scripts.download_data --model lenet --dataset mnist
 python -m scripts.train_baseline --model lenet --dataset mnist --epochs 1
 ```
+
+Select official pretrained weights for a modern CIFAR-10 model with either the
+Dashboard's **Initial weights** field or `--weight-mode pretrained`:
+
+```powershell
+python -m failure_atlas.agent run --stage baseline --model mobilenet_v3 --dataset cifar10 --weight-mode pretrained --baseline-epochs 1 --run-id mobile-pretrained
+```
+
+The first explicit pretrained run downloads the matching official checkpoint to
+the Torch hub cache (set `TORCH_HOME` to put it elsewhere, for example when
+`~/.cache` is not writable). The Dashboard preflight shows whether that file is already
+cached; later runs and checkpoint restoration work offline. The run records the
+weight enum, source URL, cache path, and preprocessing contract.
+
+Pretrained runs keep their own artifacts in `artifacts/<model>_<dataset>_pretrained/`
+and `reports/generated/<model>_<dataset>_pretrained/`, so a scratch baseline and a
+pretrained one for the same model sit side by side. Because the pretrained networks see
+upsampled 224×224 inputs and start from useful features, fine-tuning uses a learning
+rate one tenth of the configured one and caps the batch at 64 unless `--batch-size` is
+given.
 
 Inspect the planned workflow without changing any files:
 

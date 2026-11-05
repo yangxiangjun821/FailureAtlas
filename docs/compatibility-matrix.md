@@ -11,6 +11,7 @@ Generated from the model and dataset registries. A check means the input shape, 
 | EfficientNet-B0 | — | — | ✓ |
 | ConvNeXt-Tiny | — | — | ✓ |
 | ViT-CIFAR | — | — | ✓ |
+| ViT-B/16 (ImageNet) | — | — | ✓ |
 
 ## Model baselines
 
@@ -23,6 +24,7 @@ Generated from the model and dataset registries. A check means the input shape, 
 | `efficientnet_b0` | compound_scaled_cnn | 3×32×32 | 4,020,358 | cifar10 |
 | `convnext_tiny` | modern_convnet | 3×32×32 | 27,827,818 | cifar10 |
 | `vit` | vision_transformer | 3×32×32 | 10,695,562 | cifar10 |
+| `vit_b16` | vision_transformer_b16 | 3×32×32 | 85,806,346 | cifar10 |
 
 ## Dataset preprocessing
 
@@ -42,6 +44,7 @@ python -m scripts.train_baseline --model mobilenet_v3 --dataset cifar10
 python -m scripts.train_baseline --model efficientnet_b0 --dataset cifar10
 python -m scripts.train_baseline --model convnext_tiny --dataset cifar10
 python -m scripts.train_baseline --model vit --dataset cifar10
+python -m scripts.train_baseline --model vit_b16 --dataset cifar10
 ```
 
 Weights and generated metrics remain local under `artifacts/`.
