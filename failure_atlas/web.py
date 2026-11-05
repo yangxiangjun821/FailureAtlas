@@ -11,6 +11,7 @@ import shutil
 import sys
 import zipfile
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -27,8 +28,11 @@ from .catalog import (
     PERTURBATION_REGISTRY,
     ensure_compatible,
     validate_selection,
+    WEIGHT_MODES,
+    resolve_weight_mode,
 )
 from .paths import experiment_paths
+from .model import pretrained_weight_cache_path, pretrained_weight_cached
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +43,7 @@ PLAN_PATH = PROJECT_ROOT / "artifacts" / "repair_plan.json"
 WORKSPACE_ROOT = PROJECT_ROOT / "workspaces"
 RUN_ROOT = PROJECT_ROOT / "runs"
 DEPLOY_SNAPSHOT_PATH = PROJECT_ROOT / "deploy" / "dashboard.json"
+PRETRAINED_TIME_FACTOR = 8
 DEMO_MODE = os.getenv("FAILUREATLAS_DEMO", "0") == "1"
 
 app = FastAPI(title="FailureAtlas", version="0.2.0")
@@ -68,6 +73,8 @@ class ExperimentRequest(BaseModel):
     perturbations: list[str] | None = Field(default=None, min_length=1, max_length=5)
     severity_scale: float = Field(default=1.0, ge=0.25, le=2.0)
     reuse_artifacts: bool = True
+    # None selects the model's natural mode (scratch, or pretrained for vit_b16).
+    weight_mode: Literal["scratch", "pretrained"] | None = None
 
 
 class ComparisonRequest(BaseModel):
@@ -124,7 +131,6 @@ def build_dashboard_payload() -> dict:
         )
     dataset_id = after.get("dataset_id", "fashion_mnist")
     model_id = after.get("model_id", "fashion_cnn")
-    model = get_model_adapter(model_id).build()
     baseline_metrics = read_optional_json(
         experiment_paths(model_id, dataset_id).baseline_metrics
     ) or {}
@@ -138,7 +144,7 @@ def build_dashboard_payload() -> dict:
         "clean_ece_before": before["baseline"]["ece"],
         "clean_ece_after": after["baseline"]["ece"],
         "clean_macro_f1_after": after["baseline"].get("macro_f1"),
-        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+        "parameter_count": parameter_count(model_id),
         "inference_ms_per_sample": baseline_metrics.get("test", {}).get(
             "inference_ms_per_sample"
         ),
@@ -158,6 +164,14 @@ def dataset_cached(dataset_id: str) -> bool:
     return bool(marker and marker.exists())
 
 
+@lru_cache(maxsize=None)
+def parameter_count(model_id: str) -> int:
+    """Parameter count without loading pretrained weights (and without downloading)."""
+    config = {"initialize_weights": False}
+    model = get_model_adapter(model_id).build(config)
+    return sum(parameter.numel() for parameter in model.parameters())
+
+
 def build_catalog_payload() -> dict:
     run_records = build_runs_payload()["runs"]
     datasets = []
@@ -174,10 +188,11 @@ def build_catalog_payload() -> dict:
         )
     models = []
     for spec in MODEL_REGISTRY.values():
-        model = get_model_adapter(spec.id).build()
         weights_ready = any(
-            experiment_paths(spec.id, dataset_id).baseline_checkpoint.is_file()
+            experiment_paths(spec.id, dataset_id, mode).baseline_checkpoint.is_file()
             for dataset_id in spec.datasets
+            for mode in WEIGHT_MODES
+            if spec.supports_weight_mode(mode)
         )
         models.append(
             {
@@ -185,10 +200,13 @@ def build_catalog_payload() -> dict:
                 "name": spec.display_name,
                 "architecture": spec.architecture,
                 "input_shape": [spec.input_channels, *spec.input_size],
-                "parameters": sum(parameter.numel() for parameter in model.parameters()),
+                "parameters": parameter_count(spec.id),
                 "datasets": list(spec.datasets),
                 "weights_ready": weights_ready,
                 "experiment_count": sum(run["model"] == spec.id for run in run_records),
+                "pretrained_available": spec.pretrained_available,
+                "scratch_available": spec.scratch_available,
+                "pretrained_cached": pretrained_weight_cached(spec.id),
             }
         )
     compatibility = []
@@ -369,10 +387,15 @@ def build_preflight_payload(request: ExperimentRequest) -> dict:
         validate_selection(request.model, request.dataset, perturbations)
     except (KeyError, ValueError, NotImplementedError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    try:
+        weight_mode = resolve_weight_mode(request.model, request.weight_mode)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     from .agent import steps_for
 
     steps = []
-    for step in steps_for(request.stage, request.model, request.dataset):
+    paths = experiment_paths(request.model, request.dataset, weight_mode)
+    for step in steps_for(request.stage, request.model, request.dataset, weight_mode):
         will_run = not request.reuse_artifacts or not step.ready
         steps.append(
             {
@@ -386,14 +409,22 @@ def build_preflight_payload(request: ExperimentRequest) -> dict:
     stage_factor = {"baseline": 1.0, "analyze": 1.8, "full": 3.0}[request.stage]
     selected_count = len(request.perturbations or PERTURBATION_REGISTRY.as_dicts())
     estimate = base_minutes * stage_factor * max(0.35, selected_count / 5)
+    if weight_mode == "pretrained":
+        # Inputs are upsampled to 224x224; this is a rough multiplier, not a benchmark.
+        estimate *= PRETRAINED_TIME_FACTOR
     if request.reuse_artifacts:
         runnable = sum(step["will_run"] for step in steps)
         estimate *= max(0.15, runnable / max(1, len(steps)))
-    paths = experiment_paths(request.model, request.dataset)
+    cache_path = pretrained_weight_cache_path(request.model)
     return {
         "compatible": True,
         "dataset_cached": dataset_cached(request.dataset),
         "weights_ready": paths.baseline_checkpoint.is_file(),
+        "weight_mode": weight_mode,
+        "pretrained_cached": pretrained_weight_cached(request.model),
+        "pretrained_cache_path": str(cache_path) if cache_path else None,
+        "download_required": weight_mode == "pretrained"
+        and not pretrained_weight_cached(request.model),
         "estimated_minutes": max(1, round(estimate)),
         "steps": steps,
         "selected_perturbations": request.perturbations
@@ -530,6 +561,41 @@ async def import_project(request: Request) -> dict:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
+JOB_LOG_LINES = 120
+STREAM_LIMIT = 1024 * 1024
+RUN_ID_PATTERN = re.compile(r"(?:run_id=|workspace=.*[\\/])([A-Za-z0-9][A-Za-z0-9._-]{0,79})$")
+
+
+def _remember(line: str) -> None:
+    job_state["logs"].append(line)
+    job_state["logs"] = job_state["logs"][-JOB_LOG_LINES:]
+
+
+def _fail_job(error: BaseException) -> None:
+    """End the job as failed so the dashboard never keeps showing it as running."""
+    _remember(f"任务异常终止：{type(error).__name__}: {error}")
+    job_state.update(
+        status="error",
+        return_code=-1,
+        finished_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+async def _stream(process, full_log: list[str] | None = None) -> str | None:
+    """Copy a process's output into the job log; return a run id seen on the way."""
+    assert process.stdout is not None
+    run_id = None
+    async for raw in process.stdout:
+        line = raw.decode(errors="replace").rstrip()
+        _remember(line)
+        if full_log is not None:
+            full_log.append(line)
+        match = RUN_ID_PATTERN.search(line)
+        if match:
+            run_id = match.group(1)
+    return run_id
+
+
 async def run_commands(action: str, modules: list[str]) -> None:
     job_state.update(
         status="running",
@@ -539,31 +605,36 @@ async def run_commands(action: str, modules: list[str]) -> None:
         return_code=None,
         logs=[],
     )
-    for module in modules:
-        job_state["logs"].append(f"$ python -m {module}")
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-u",
-            "-m",
-            module,
-            cwd=PROJECT_ROOT,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        assert process.stdout is not None
-        async for line in process.stdout:
-            job_state["logs"].append(line.decode(errors="replace").rstrip())
-            job_state["logs"] = job_state["logs"][-120:]
-        return_code = await process.wait()
-        if return_code != 0:
-            job_state.update(status="error", return_code=return_code)
-            break
-    else:
-        job_state.update(status="success", return_code=0)
+    process = None
+    try:
+        for module in modules:
+            _remember(f"$ python -m {module}")
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-u",
+                "-m",
+                module,
+                cwd=PROJECT_ROOT,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                limit=STREAM_LIMIT,
+            )
+            await _stream(process)
+            return_code = await process.wait()
+            if return_code != 0:
+                job_state.update(status="error", return_code=return_code)
+                break
+        else:
+            job_state.update(status="success", return_code=0)
+    except Exception as error:
+        if process is not None and process.returncode is None:
+            process.kill()
+        _fail_job(error)
+        return
     job_state["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
-async def run_agent_experiment(request: ExperimentRequest) -> None:
+def build_experiment_command(request: ExperimentRequest) -> list[str]:
     command = [
         sys.executable,
         "-u",
@@ -585,10 +656,30 @@ async def run_agent_experiment(request: ExperimentRequest) -> None:
     if request.batch_size:
         command.extend(["--batch-size", str(request.batch_size)])
     command.extend(["--severity-scale", str(request.severity_scale)])
+    command.extend(["--weight-mode", resolve_weight_mode(request.model, request.weight_mode)])
     for perturbation in request.perturbations or []:
         command.extend(["--perturbation", perturbation])
     if not request.reuse_artifacts:
         command.append("--force")
+    return command
+
+
+def save_execution_log(run_id: str, lines: list[str]) -> None:
+    run_directory = RUN_ROOT / run_id
+    if not run_directory.is_dir():
+        return
+    (run_directory / "execution.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    metadata_path = run_directory / "metadata.json"
+    metadata = read_optional_json(metadata_path)
+    if metadata is not None:
+        artifacts = metadata.setdefault("artifacts", [])
+        if "execution.log" not in artifacts:
+            artifacts.append("execution.log")
+        metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+async def run_agent_experiment(request: ExperimentRequest) -> None:
+    command = build_experiment_command(request)
     job_state.update(
         status="running",
         action="experiment",
@@ -597,36 +688,30 @@ async def run_agent_experiment(request: ExperimentRequest) -> None:
         return_code=None,
         logs=["$ " + " ".join(command[1:])],
         selection=request.model_dump(exclude={"run_id"}),
+        run_id=request.run_id,
     )
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        cwd=PROJECT_ROOT,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    assert process.stdout is not None
-    async for line in process.stdout:
-        job_state["logs"].append(line.decode(errors="replace").rstrip())
-        job_state["logs"] = job_state["logs"][-120:]
-    return_code = await process.wait()
-    resolved_run_id = request.run_id
-    if resolved_run_id is None:
-        for line in reversed(job_state["logs"]):
-            match = re.search(r"(?:run_id=|workspace=.*[\\/])([A-Za-z0-9][A-Za-z0-9._-]{0,79})$", line)
-            if match:
-                resolved_run_id = match.group(1)
-                break
-    if resolved_run_id and (RUN_ROOT / resolved_run_id).is_dir():
-        run_directory = RUN_ROOT / resolved_run_id
-        log_path = run_directory / "execution.log"
-        log_path.write_text("\n".join(job_state["logs"]) + "\n", encoding="utf-8")
-        metadata_path = run_directory / "metadata.json"
-        metadata = read_optional_json(metadata_path)
-        if metadata is not None:
-            artifacts = metadata.setdefault("artifacts", [])
-            if "execution.log" not in artifacts:
-                artifacts.append("execution.log")
-            metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    full_log = list(job_state["logs"])
+    process = None
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=PROJECT_ROOT,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            limit=STREAM_LIMIT,
+        )
+        seen_run_id = await _stream(process, full_log)
+        return_code = await process.wait()
+        # The id is taken while streaming, so a failed run whose "workspace=" line has
+        # already scrolled out of the 120-line window still gets its full log saved.
+        resolved_run_id = request.run_id or seen_run_id
+        if resolved_run_id:
+            save_execution_log(resolved_run_id, full_log)
+    except Exception as error:
+        if process is not None and process.returncode is None:
+            process.kill()
+        _fail_job(error)
+        return
     job_state.update(
         status="success" if return_code == 0 else "error",
         return_code=return_code,
@@ -635,21 +720,8 @@ async def run_agent_experiment(request: ExperimentRequest) -> None:
     )
 
 
-@app.post("/api/jobs/{action}", status_code=202)
-async def start_job(action: Literal["rescan", "repair"]) -> dict:
-    global job_task
-    if DEMO_MODE:
-        raise HTTPException(status_code=403, detail="在线演示不运行训练任务，请使用本地 GPU 版本。")
-    if job_task is not None and not job_task.done():
-        raise HTTPException(status_code=409, detail="Another experiment is already running.")
-    modules = {
-        "rescan": ["scripts.search_failures", "scripts.compare_repair"],
-        "repair": ["scripts.repair_model", "scripts.compare_repair"],
-    }[action]
-    job_task = asyncio.create_task(run_commands(action, modules))
-    return {"accepted": True, "action": action}
-
-
+# Static paths must be declared before "/api/jobs/{action}"; Starlette uses the first
+# matching route, so a parameterized route declared earlier would shadow them.
 @app.post("/api/jobs/experiment", status_code=202)
 async def start_experiment(request: ExperimentRequest) -> dict:
     global job_task
@@ -665,7 +737,26 @@ async def start_experiment(request: ExperimentRequest) -> dict:
         )
     except (KeyError, ValueError, NotImplementedError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    try:
+        resolve_weight_mode(request.model, request.weight_mode)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     if request.run_id and (RUN_ROOT / request.run_id).exists():
         raise HTTPException(status_code=409, detail=f"run_id '{request.run_id}' 已存在，请更换名称。")
     job_task = asyncio.create_task(run_agent_experiment(request))
     return {"accepted": True, "action": "experiment", "selection": request.model_dump()}
+
+
+@app.post("/api/jobs/{action}", status_code=202)
+async def start_job(action: Literal["rescan", "repair"]) -> dict:
+    global job_task
+    if DEMO_MODE:
+        raise HTTPException(status_code=403, detail="在线演示不运行训练任务，请使用本地 GPU 版本。")
+    if job_task is not None and not job_task.done():
+        raise HTTPException(status_code=409, detail="Another experiment is already running.")
+    modules = {
+        "rescan": ["scripts.search_failures", "scripts.compare_repair"],
+        "repair": ["scripts.repair_model", "scripts.compare_repair"],
+    }[action]
+    job_task = asyncio.create_task(run_commands(action, modules))
+    return {"accepted": True, "action": action}

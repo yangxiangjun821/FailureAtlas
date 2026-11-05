@@ -239,8 +239,13 @@ function updateSelectionStatus() {
     status.textContent = "请选择有效的模型与数据集。";
     return;
   }
-  const cacheText = dataset.cached ? "数据已缓存" : "首次运行将下载数据";
+    const cacheText = dataset.cached ? "数据已缓存" : "首次运行将下载数据";
+    const weightMode = $("#experiment-weight-mode").value;
+    const weightText = weightMode === "pretrained"
+      ? (model.pretrained_cached ? "官方权重已缓存" : "首次运行需下载官方权重")
+      : "从头训练";
   status.innerHTML = `<strong>${escapeHTML(model.name)} × ${escapeHTML(dataset.display_name)}</strong><span>${model.parameters.toLocaleString()} 参数 · ${dataset.train_samples.toLocaleString()} 训练样本 · ${cacheText}</span>`;
+    status.querySelector("span").textContent += ` · ${weightText}`;
   schedulePreflight();
 }
 
@@ -249,6 +254,7 @@ function experimentPayload() {
     model: $("#experiment-model").value,
     dataset: $("#experiment-dataset").value,
     stage: $("#experiment-stage").value,
+      weight_mode: $("#experiment-weight-mode").value,
     seed: Number($("#experiment-seed").value || 42),
     severity_scale: Number($("#experiment-severity").value || 1),
     reuse_artifacts: $("#experiment-reuse").value === "true",
@@ -267,7 +273,10 @@ function experimentPayload() {
 function renderPreflight(result) {
   const host = $("#preflight-panel");
   const stepText = result.steps.map((step) => `<li class="${step.will_run ? "run" : "reuse"}"><span>${escapeHTML(step.title)}</span><strong>${step.will_run ? "执行" : "复用"}</strong></li>`).join("");
-  host.innerHTML = `<div><strong>运行预检通过</strong><span>预计约 ${result.estimated_minutes} 分钟 · ${result.dataset_cached ? "数据已缓存" : "需下载数据"} · ${result.weights_ready ? "已有基准权重" : "尚无基准权重"}</span></div><ol>${stepText}</ol>`;
+    const weightsText = result.weight_mode === "pretrained"
+      ? (result.pretrained_cached ? "官方权重已缓存" : "需联网下载官方权重")
+      : "从头训练";
+    host.innerHTML = `<div><strong>运行预检通过</strong><span>预计约 ${result.estimated_minutes} 分钟 · ${result.dataset_cached ? "数据已缓存" : "需下载数据"} · ${weightsText}</span></div><ol>${stepText}</ol>`;
   host.className = "preflight-panel ready";
 }
 
@@ -302,10 +311,28 @@ function syncDatasetOptions() {
   updateSelectionStatus();
 }
 
+  function syncWeightModeOptions() {
+    const model = state.catalog.models.find((item) => item.id === $("#experiment-model").value);
+    const select = $("#experiment-weight-mode");
+    const scratch = select.querySelector('option[value="scratch"]');
+    const pretrained = select.querySelector('option[value="pretrained"]');
+    const scratchAvailable = model?.scratch_available !== false;
+    scratch.disabled = !scratchAvailable;
+    scratch.textContent = scratchAvailable ? "从头训练" : "该模型只提供官方预训练权重";
+    pretrained.disabled = !model?.pretrained_available;
+    pretrained.textContent = model?.pretrained_available
+      ? `TorchVision 官方预训练${model.pretrained_cached ? " · 已缓存" : " · 待下载"}`
+      : "该模型无官方预训练模式";
+    if (select.selectedOptions[0]?.disabled) {
+      select.value = scratchAvailable ? "scratch" : "pretrained";
+    }
+  }
+
 function renderExperimentForm() {
   const modelSelect = $("#experiment-model");
   modelSelect.innerHTML = state.catalog.models.map((model) => `<option value="${model.id}">${escapeHTML(model.name)} · ${model.architecture}</option>`).join("");
   $("#experiment-perturbations").innerHTML = state.catalog.perturbations.map((item) => `<label><input type="checkbox" value="${item.id}" checked><span>${escapeHTML(item.display_name)}</span></label>`).join("");
+    syncWeightModeOptions();
   syncDatasetOptions();
   updateExperimentMode();
   if (STATIC_SHOWCASE) {
@@ -318,8 +345,9 @@ function renderExperimentForm() {
 function renderCatalog() {
   const models = state.catalog.models.map((model) => `
     <article class="catalog-item">
-      <div><strong>${escapeHTML(model.name)}</strong><span>${escapeHTML(model.architecture)} · ${model.weights_ready ? "权重就绪" : "尚无权重"}</span></div>
+        <div><strong>${escapeHTML(model.name)}</strong><span>${escapeHTML(model.architecture)} · ${model.weights_ready ? "实验权重就绪" : "尚无实验权重"}</span></div>
       <dl><div><dt>参数量</dt><dd>${model.parameters.toLocaleString()}</dd></div><div><dt>输入</dt><dd>${model.input_shape.join(" × ")}</dd></div><div><dt>兼容数据集</dt><dd>${model.datasets.map((id) => state.catalog.datasets.find((item) => item.dataset_id === id)?.display_name || id).join("、")}</dd></div><div><dt>实验</dt><dd>${model.experiment_count ?? 0}</dd></div></dl>
+        <p class="catalog-note">${model.pretrained_available ? `官方预训练：${model.pretrained_cached ? "已缓存，可离线使用" : "可用，首次需联网下载"}` : "仅支持从头训练"}</p>
     </article>
   `).join("");
   const datasetCards = state.catalog.datasets.map((dataset) => `
@@ -489,7 +517,7 @@ function renderSystem() {
 async function loadWorkspaceData() {
   if (STATIC_SHOWCASE) {
     state.catalog = {
-      models: [{ id: "fashion_cnn", name: "FashionCNN", architecture: "compact_cnn", input_shape: [1, 28, 28], parameters: 421834, datasets: ["fashion_mnist"], weights_ready: true, experiment_count: 1 }],
+      models: [{ id: "fashion_cnn", name: "FashionCNN", architecture: "compact_cnn", input_shape: [1, 28, 28], parameters: 421834, datasets: ["fashion_mnist"], weights_ready: true, pretrained_available: false, pretrained_cached: false, experiment_count: 1 }],
       datasets: [{ dataset_id: "fashion_mnist", display_name: "Fashion-MNIST", train_samples: 60000, test_samples: 10000, input_channels: 1, input_size: [28, 28], num_classes: 10, normalization_mean: [0.286], normalization_std: [0.353], perturbations: Object.keys(LABELS), cached: true, experiment_count: 1 }],
       perturbations: Object.entries(LABELS).map(([id, display_name]) => ({ id, display_name })),
       compatibility: [{ model: "fashion_cnn", dataset: "fashion_mnist", compatible: true }],
@@ -652,8 +680,9 @@ $("#bundle-input").addEventListener("change", (event) => {
   const file = event.target.files?.[0];
   if (file) importBundle(file);
 });
-$("#experiment-model").addEventListener("change", syncDatasetOptions);
+$("#experiment-model").addEventListener("change", () => { syncWeightModeOptions(); syncDatasetOptions(); });
 $("#experiment-dataset").addEventListener("change", updateSelectionStatus);
+$("#experiment-weight-mode").addEventListener("change", updateSelectionStatus);
 $("#experiment-stage").addEventListener("change", updateExperimentMode);
 $("#experiment-perturbations").addEventListener("change", schedulePreflight);
 ["#experiment-epochs", "#experiment-seed", "#experiment-batch-size", "#experiment-severity", "#experiment-reuse", "#experiment-run-id"].forEach((selector) => {

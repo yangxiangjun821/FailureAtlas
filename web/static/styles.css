@@ -128,6 +128,7 @@ h1 { margin-bottom: 7px; font-size: 22px; letter-spacing: -.025em; }
 .catalog-item dl { margin: 18px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .catalog-item dl div { display: grid; gap: 4px; }
 .catalog-item dt { color: var(--muted); font-size: 9px; text-transform: uppercase; }.catalog-item dd { margin: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.catalog-note { margin: 14px 0 0; color: var(--muted); font-size: 10px; }
 .compatibility-table { margin-top: 18px; }
 .compatibility-table th small { margin-top: 4px; display: block; font-size: 8px; letter-spacing: 0; text-transform: none; }
 .cache-dot.ready { color: var(--signal); }.cache-dot.pending { color: var(--warning); }

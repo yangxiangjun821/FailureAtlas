@@ -98,6 +98,7 @@
             <form id="experiment-form" class="experiment-form">
               <label><span>模型</span><select id="experiment-model" name="model" required></select></label>
               <label><span>数据集</span><select id="experiment-dataset" name="dataset" required></select></label>
+                <label><span>初始权重</span><select id="experiment-weight-mode" name="weight_mode"><option value="scratch">从头训练</option><option value="pretrained">TorchVision 官方预训练</option></select></label>
               <label><span>实验模式</span><select id="experiment-stage" name="stage"><option value="baseline">仅基准训练</option><option value="analyze">失效边界分析</option><option value="full">完整诊断与修复</option></select></label>
               <label><span>训练轮数</span><input id="experiment-epochs" name="epochs" type="number" min="1" max="100" placeholder="使用配置默认值" /></label>
               <label><span>随机种子</span><input id="experiment-seed" name="seed" type="number" min="0" max="2147483647" value="42" /></label>

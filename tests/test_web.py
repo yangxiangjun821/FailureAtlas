@@ -80,6 +80,7 @@ def test_dashboard_entry_and_api_function(fixture_artifacts) -> None:
     assert 'id="roadmap-model-catalog"' in page
     assert 'id="roadmap-dataset-library"' in page
     assert 'id="experiment-config"' in page
+    assert 'id="experiment-weight-mode"' in page
     assert 'id="model-catalog"' in page
     assert 'id="runs-table"' in page
     assert 'id="system-check"' in page
@@ -107,6 +108,7 @@ def test_dashboard_catalog_and_system_are_registry_backed() -> None:
         "efficientnet_b0",
         "convnext_tiny",
         "vit",
+        "vit_b16",
     ]
     assert [dataset["dataset_id"] for dataset in catalog["datasets"]] == [
         "fashion_mnist",
@@ -117,6 +119,12 @@ def test_dashboard_catalog_and_system_are_registry_backed() -> None:
         item == {"model": "resnet18", "dataset": "cifar10", "compatible": True}
         for item in catalog["compatibility"]
     )
+    modern = {model["id"]: model for model in catalog["models"]}
+    assert modern["mobilenet_v3"]["pretrained_available"] is True
+    assert modern["resnet18"]["pretrained_available"] is False
+    assert modern["vit"]["pretrained_available"] is False
+    assert modern["vit_b16"]["scratch_available"] is False
+    assert modern["vit_b16"]["parameters"] > 80_000_000
     system = build_system_payload()
     assert system["python"]
     assert system["disk_free_bytes"] > 0
@@ -212,3 +220,92 @@ def test_preflight_reports_steps_and_selected_perturbations() -> None:
     assert payload["compatible"] is True
     assert payload["selected_perturbations"] == ["rotation", "blur"]
     assert [step["key"] for step in payload["steps"]] == ["data", "baseline", "scan"]
+
+
+def test_preflight_reports_pretrained_download_and_rejects_unsupported(monkeypatch) -> None:
+    monkeypatch.setattr(web, "pretrained_weight_cached", lambda model_id: False)
+    payload = build_preflight_payload(
+        ExperimentRequest(
+            model="mobilenet_v3",
+            dataset="cifar10",
+            stage="baseline",
+            weight_mode="pretrained",
+            # Do not depend on whichever artifacts happen to exist on this machine.
+            reuse_artifacts=False,
+        )
+    )
+    assert payload["weight_mode"] == "pretrained"
+    assert payload["download_required"] is True
+    assert all(step["will_run"] for step in payload["steps"])
+
+    with pytest.raises(web.HTTPException, match="does not provide pretrained weights"):
+        build_preflight_payload(
+            ExperimentRequest(
+                model="lenet",
+                dataset="mnist",
+                stage="baseline",
+                weight_mode="pretrained",
+            )
+        )
+
+
+def test_static_routes_are_not_shadowed_by_parameterized_routes() -> None:
+    """Starlette serves the first matching route, so declaration order matters."""
+    from starlette.routing import Match
+
+    methods_by_path: list[tuple[str, str, str]] = []
+    for route in web.app.routes:
+        path = getattr(route, "path", "")
+        if "{" in path or not path.startswith("/api/"):
+            continue
+        for method in getattr(route, "methods", None) or ():
+            if method != "HEAD":
+                methods_by_path.append((path, method, route.endpoint.__name__))
+    assert methods_by_path, "expected static API routes"
+    for path, method, endpoint in methods_by_path:
+        scope = {"type": "http", "path": path, "method": method, "root_path": ""}
+        first = next(
+            route for route in web.app.routes if route.matches(scope)[0] == Match.FULL
+        )
+        assert first.endpoint.__name__ == endpoint, (
+            f"{method} {path} is handled by {first.path} instead of {endpoint}"
+        )
+
+
+def test_experiment_job_route_reaches_its_own_handler() -> None:
+    from starlette.routing import Match
+
+    scope = {"type": "http", "path": "/api/jobs/experiment", "method": "POST", "root_path": ""}
+    first = next(route for route in web.app.routes if route.matches(scope)[0] == Match.FULL)
+    assert first.endpoint.__name__ == "start_experiment"
+
+
+def test_preflight_resolves_the_natural_weight_mode_for_pretrained_only_models() -> None:
+    payload = build_preflight_payload(
+        ExperimentRequest(model="vit_b16", dataset="cifar10", stage="baseline")
+    )
+    assert payload["weight_mode"] == "pretrained"
+    with pytest.raises(web.HTTPException, match="only defined with official pretrained"):
+        build_preflight_payload(
+            ExperimentRequest(
+                model="vit_b16", dataset="cifar10", stage="baseline", weight_mode="scratch"
+            )
+        )
+
+
+def test_pretrained_runs_are_estimated_slower_than_scratch_runs() -> None:
+    scratch = build_preflight_payload(
+        ExperimentRequest(
+            model="mobilenet_v3", dataset="cifar10", stage="full", reuse_artifacts=False
+        )
+    )
+    pretrained = build_preflight_payload(
+        ExperimentRequest(
+            model="mobilenet_v3",
+            dataset="cifar10",
+            stage="full",
+            reuse_artifacts=False,
+            weight_mode="pretrained",
+        )
+    )
+    assert pretrained["estimated_minutes"] > scratch["estimated_minutes"]
