@@ -69,3 +69,18 @@ def test_artifact_archive_and_integrity_validation(tmp_path: Path) -> None:
     manifest = json.loads((workspace.path / "agent_run.json").read_text(encoding="utf-8"))
     assert metadata["status"] == "completed"
     assert manifest["run_id"] == "repair-study"
+
+
+def test_pretrained_workspace_records_official_weight_contract(tmp_path: Path) -> None:
+    workspace = create_run_workspace(
+        tmp_path,
+        model_id="mobilenet_v3",
+        dataset_id="cifar10",
+        stage="baseline",
+        weight_mode="pretrained",
+        run_id="pretrained-study",
+    )
+    metadata = json.loads((workspace.path / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["weight_mode"] == "pretrained"
+    assert metadata["pretrained_weights"]["source"] == "torchvision"
+    assert metadata["pretrained_weights"]["input_size"] == [224, 224]

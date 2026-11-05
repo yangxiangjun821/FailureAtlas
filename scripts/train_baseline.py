@@ -9,11 +9,13 @@ import torch
 from torch import nn
 
 from failure_atlas.adapters import get_dataset_adapter, get_model_adapter
-from failure_atlas.catalog import validate_selection
-from failure_atlas.config import load_train_config
+from failure_atlas.catalog import resolve_weight_mode, validate_selection
+from failure_atlas.config import effective_batch_size, effective_learning_rate, load_train_config
 from failure_atlas.paths import experiment_paths
+from failure_atlas.model import pretrained_weight_cache_path, pretrained_weight_cached
 from failure_atlas.training import (
     evaluate,
+    fit_batch_size,
     load_checkpoint,
     measure_inference_speed,
     resolve_device,
@@ -30,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, help="Override epochs for a smoke test.")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--weight-mode", choices=("scratch", "pretrained"))
     parser.add_argument("--model", default="fashion_cnn")
     parser.add_argument("--dataset", default="fashion_mnist")
     return parser.parse_args()
@@ -47,10 +50,45 @@ def main() -> None:
         config = replace(config, seed=args.seed)
     if args.batch_size is not None:
         config = replace(config, batch_size=args.batch_size)
+    weight_mode = resolve_weight_mode(args.model, args.weight_mode)
+    config = replace(
+        config,
+        weight_mode=weight_mode,
+        learning_rate=effective_learning_rate(config.learning_rate, weight_mode),
+        batch_size=effective_batch_size(
+            config.batch_size, weight_mode, explicit=args.batch_size is not None
+        ),
+    )
+    if weight_mode == "pretrained":
+        print(
+            f"Pretrained fine-tuning: learning rate {config.learning_rate:g}, "
+            f"batch size {config.batch_size}"
+        )
 
     set_seed(config.seed)
     device = resolve_device(config.device)
     print(f"Training on: {device}")
+    if config.weight_mode == "pretrained" and not pretrained_weight_cached(args.model):
+        print(
+            "Official pretrained weights are not cached; TorchVision will download "
+            f"them once to: {pretrained_weight_cache_path(args.model)}"
+        )
+    try:
+        model = model_adapter.build({"weight_mode": config.weight_mode}).to(device)
+    except Exception as error:
+        if config.weight_mode == "pretrained":
+            raise RuntimeError(
+                "Unable to load official pretrained weights. Check the network, or "
+                f"place the checkpoint in {pretrained_weight_cache_path(args.model)}."
+            ) from error
+        raise
+    # Shrink the batch if a measured training step would not fit in free GPU memory. An
+    # explicit --batch-size is shrunk too: a size that spills into shared memory is never
+    # what anyone wants. The fitted size is what gets recorded in the checkpoint config.
+    fitted = fit_batch_size(model, config.batch_size, device, training=True)
+    if fitted != config.batch_size:
+        print(f"Batch size reduced {config.batch_size} -> {fitted} to fit GPU memory")
+        config = replace(config, batch_size=fitted)
     # prepare() also downloads the dataset, so it runs before the holdout split.
     _, test_loader = dataset_adapter.prepare(
         config.data_dir, config.batch_size, config.num_workers, download=True
@@ -66,7 +104,6 @@ def main() -> None:
         f"Baseline split: {len(train_loader.dataset)} train / "
         f"{len(val_loader.dataset)} validation held out"
     )
-    model = model_adapter.build().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     criterion = nn.CrossEntropyLoss()
 
@@ -82,7 +119,7 @@ def main() -> None:
             f"val_accuracy={metrics['accuracy']:.4f}, val_macro_f1={metrics['macro_f1']:.4f}"
         )
 
-    paths = experiment_paths(args.model, args.dataset)
+    paths = experiment_paths(args.model, args.dataset, weight_mode)
     checkpoint_path = paths.baseline_checkpoint
     metrics_path = paths.baseline_metrics
     final_metrics = evaluate(model, test_loader, device)

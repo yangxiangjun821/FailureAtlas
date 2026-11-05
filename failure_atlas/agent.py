@@ -14,6 +14,7 @@ from .catalog import (
     DATASET_REGISTRY,
     MODEL_REGISTRY,
     PERTURBATION_REGISTRY,
+    resolve_weight_mode,
     validate_selection,
 )
 from .comparison import boundary_delta
@@ -52,10 +53,12 @@ DATA_MARKERS = {
 
 
 def pipeline_for(
-    model_id: str = "fashion_cnn", dataset_id: str = "fashion_mnist"
+    model_id: str = "fashion_cnn",
+    dataset_id: str = "fashion_mnist",
+    weight_mode: str | None = None,
 ) -> tuple[PipelineStep, ...]:
-    """Pipeline whose expected outputs are isolated per model/dataset selection."""
-    paths = experiment_paths(model_id, dataset_id)
+    """Pipeline whose expected outputs are isolated per model, dataset and weight mode."""
+    paths = experiment_paths(model_id, dataset_id, weight_mode)
     dataset = DATASET_REGISTRY.get(dataset_id)
     return (
         PipelineStep(
@@ -92,9 +95,12 @@ def pipeline_for(
 
 
 def steps_for(
-    stage: str, model_id: str = "fashion_cnn", dataset_id: str = "fashion_mnist"
+    stage: str,
+    model_id: str = "fashion_cnn",
+    dataset_id: str = "fashion_mnist",
+    weight_mode: str | None = None,
 ) -> tuple[PipelineStep, ...]:
-    pipeline = pipeline_for(model_id, dataset_id)
+    pipeline = pipeline_for(model_id, dataset_id, weight_mode)
     if stage == "baseline":
         return pipeline[:2]
     return pipeline[:3] if stage == "analyze" else pipeline
@@ -136,11 +142,13 @@ def command_for(
     batch_size: int | None = None,
     perturbations: tuple[str, ...] | None = None,
     severity_scale: float = 1.0,
+    weight_mode: str | None = None,
 ) -> list[str]:
     command = [sys.executable, "-m", step.module, "--model", model_id, "--dataset", dataset_id]
     if step.key == "baseline" and baseline_epochs is not None:
         command.extend(["--epochs", str(baseline_epochs)])
     if step.key in {"baseline", "scan", "repair", "compare"}:
+        command.extend(["--weight-mode", resolve_weight_mode(model_id, weight_mode)])
         command.extend(["--seed", str(seed)])
     if batch_size is not None and step.key in {"baseline", "scan", "repair", "compare"}:
         command.extend(["--batch-size", str(batch_size)])
@@ -160,12 +168,14 @@ def print_plan(
     batch_size: int | None = None,
     perturbations: tuple[str, ...] | None = None,
     severity_scale: float = 1.0,
+    weight_mode: str | None = None,
 ) -> None:
     validate_selection(model_id, dataset_id, perturbations)
-    paths = experiment_paths(model_id, dataset_id)
+    weight_mode = resolve_weight_mode(model_id, weight_mode)
+    paths = experiment_paths(model_id, dataset_id, weight_mode)
     print(f"FailureAtlas local agent plan ({stage})")
-    print(f"  selection. model={model_id}, dataset={dataset_id}")
-    for index, step in enumerate(steps_for(stage, model_id, dataset_id), start=1):
+    print(f"  selection. model={model_id}, dataset={dataset_id}, weights={weight_mode}")
+    for index, step in enumerate(steps_for(stage, model_id, dataset_id, weight_mode), start=1):
         status = "ready" if step.ready else "pending"
         command = " ".join(
             command_for(
@@ -177,6 +187,7 @@ def print_plan(
                 batch_size,
                 perturbations,
                 severity_scale,
+                weight_mode,
             )
         )
         print(f"  {index}. [{status}] {step.title}")
@@ -196,10 +207,12 @@ def run_pipeline(
     batch_size: int | None = None,
     perturbations: tuple[str, ...] | None = None,
     severity_scale: float = 1.0,
+    weight_mode: str | None = None,
     run_id: str | None = None,
     runs_root: str | Path | None = None,
 ) -> Path | None:
     validate_selection(model_id, dataset_id, perturbations)
+    weight_mode = resolve_weight_mode(model_id, weight_mode)
     print_plan(
         stage,
         baseline_epochs,
@@ -209,11 +222,12 @@ def run_pipeline(
         batch_size,
         perturbations,
         severity_scale,
+        weight_mode,
     )
     if dry_run:
         return None
 
-    paths = experiment_paths(model_id, dataset_id)
+    paths = experiment_paths(model_id, dataset_id, weight_mode)
     workspace = create_run_workspace(
         runs_root or ROOT / "runs",
         model_id=model_id,
@@ -222,6 +236,7 @@ def run_pipeline(
         seed=seed,
         batch_size=batch_size,
         severity_scale=severity_scale,
+        weight_mode=weight_mode,
         perturbation_ids=perturbations,
         run_id=run_id,
     )
@@ -229,7 +244,7 @@ def run_pipeline(
     # Once a step re-runs, every later step is stale and must re-run too.
     rerun = force
     try:
-        for step in steps_for(stage, model_id, dataset_id):
+        for step in steps_for(stage, model_id, dataset_id, weight_mode):
             if step.ready and not rerun:
                 print(f"[skip] {step.title}: expected outputs already exist")
                 continue
@@ -243,6 +258,7 @@ def run_pipeline(
                 batch_size,
                 perturbations,
                 severity_scale,
+                weight_mode,
             )
             print(f"[run]  {step.title}")
             subprocess.run(command, cwd=ROOT, check=True)
@@ -259,6 +275,7 @@ def run_pipeline(
                 paths.agent_report,
                 model_id=model_id,
                 dataset_id=dataset_id,
+                weight_mode=weight_mode,
                 include_comparison=stage == "full",
             )
         )
@@ -365,16 +382,18 @@ def generate_agent_report(
     *,
     model_id: str = "fashion_cnn",
     dataset_id: str = "fashion_mnist",
+    weight_mode: str | None = None,
     include_comparison: bool = True,
 ) -> Path:
-    paths = experiment_paths(model_id, dataset_id)
+    weight_mode = resolve_weight_mode(model_id, weight_mode)
+    paths = experiment_paths(model_id, dataset_id, weight_mode)
     analysis_path = analysis_path or paths.failure_analysis
     comparison_path = comparison_path or paths.repair_comparison
     output_path = output_path or paths.agent_report
     if not analysis_path.exists():
         raise FileNotFoundError(
             f"No failure analysis found. Run `python -m failure_atlas.agent run --stage analyze "
-            f"--model {model_id} --dataset {dataset_id}` first."
+            f"--model {model_id} --dataset {dataset_id} --weight-mode {weight_mode}` first."
         )
 
     analysis = _load_json(analysis_path)
@@ -450,8 +469,8 @@ def generate_agent_report(
             "## Reproduce locally",
             "",
             "```powershell",
-            f"python -m failure_atlas.agent plan --stage full --model {model_id} --dataset {dataset_id}",
-            f"python -m failure_atlas.agent run --stage full --model {model_id} --dataset {dataset_id}",
+            f"python -m failure_atlas.agent plan --stage full --model {model_id} --dataset {dataset_id} --weight-mode {weight_mode}",
+            f"python -m failure_atlas.agent run --stage full --model {model_id} --dataset {dataset_id} --weight-mode {weight_mode}",
             "```",
             "",
             "Generated artifacts remain local by default under "
@@ -497,6 +516,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         subparser.add_argument("--batch-size", type=int)
         subparser.add_argument("--perturbation", action="append", dest="perturbations")
         subparser.add_argument("--severity-scale", type=float, default=1.0)
+        subparser.add_argument("--weight-mode", choices=("scratch", "pretrained"))
         if command == "run":
             subparser.add_argument("--force", action="store_true")
             subparser.add_argument("--dry-run", action="store_true")
@@ -510,6 +530,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     report.add_argument("--output", type=Path)
     report.add_argument("--model", default="fashion_cnn")
     report.add_argument("--dataset", default="fashion_mnist")
+    report.add_argument("--weight-mode", choices=("scratch", "pretrained"))
     return parser.parse_args(argv)
 
 
@@ -525,6 +546,7 @@ def main(argv: list[str] | None = None) -> None:
             args.batch_size,
             tuple(args.perturbations) if args.perturbations else None,
             args.severity_scale,
+            args.weight_mode,
         )
     elif args.command == "run":
         run_pipeline(
@@ -538,6 +560,7 @@ def main(argv: list[str] | None = None) -> None:
             batch_size=args.batch_size,
             perturbations=tuple(args.perturbations) if args.perturbations else None,
             severity_scale=args.severity_scale,
+            weight_mode=args.weight_mode,
             run_id=args.run_id,
         )
     elif args.command == "catalog":
@@ -551,7 +574,10 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Valid selection: model={args.model}, dataset={args.dataset}")
     else:
         generate_agent_report(
-            output_path=args.output, model_id=args.model, dataset_id=args.dataset
+            output_path=args.output,
+            model_id=args.model,
+            dataset_id=args.dataset,
+            weight_mode=args.weight_mode,
         )
 
 

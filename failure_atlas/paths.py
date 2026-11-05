@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .catalog import validate_selection
+from .catalog import resolve_weight_mode, validate_selection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,13 +14,14 @@ REPORT_ROOT = ROOT / "reports" / "generated"
 
 # The original FashionCNN / Fashion-MNIST study keeps its flat, pre-registry layout
 # so existing artifacts, the dashboard and exported bundles keep working.
-LEGACY_SELECTION = ("fashion_cnn", "fashion_mnist")
+LEGACY_SELECTION = ("fashion_cnn", "fashion_mnist", "scratch")
 
 
 @dataclass(frozen=True)
 class ExperimentPaths:
     model_id: str
     dataset_id: str
+    weight_mode: str
     artifact_dir: Path
     report_dir: Path
     baseline_checkpoint: Path
@@ -60,16 +61,23 @@ class ExperimentPaths:
 def experiment_paths(
     model_id: str,
     dataset_id: str,
+    weight_mode: str | None = None,
     *,
     artifact_root: Path = ARTIFACT_ROOT,
     report_root: Path = REPORT_ROOT,
 ) -> ExperimentPaths:
-    """Validate the selection and return its isolated artifact/report locations."""
+    """Validate the selection and return its isolated artifact/report locations.
+
+    Weight modes get separate directories so a scratch baseline and a pretrained one
+    for the same model and dataset can sit side by side and be compared.
+    """
     validate_selection(model_id, dataset_id)
-    if (model_id, dataset_id) == LEGACY_SELECTION:
+    weight_mode = resolve_weight_mode(model_id, weight_mode)
+    if (model_id, dataset_id, weight_mode) == LEGACY_SELECTION:
         return ExperimentPaths(
             model_id,
             dataset_id,
+            weight_mode,
             artifact_dir=artifact_root,
             report_dir=report_root,
             baseline_checkpoint=artifact_root / "baseline_fashion_cnn.pt",
@@ -78,10 +86,13 @@ def experiment_paths(
             repair_plan=artifact_root / "repair_plan.json",
         )
     name = f"{model_id}_{dataset_id}"
+    if weight_mode != "scratch" and model_id != "vit_b16":
+        name += f"_{weight_mode}"
     artifact_dir = artifact_root / name
     return ExperimentPaths(
         model_id,
         dataset_id,
+        weight_mode,
         artifact_dir=artifact_dir,
         report_dir=report_root / name,
         baseline_checkpoint=artifact_dir / "baseline.pt",

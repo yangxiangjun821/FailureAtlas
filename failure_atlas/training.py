@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import random
 import time
@@ -22,6 +23,7 @@ from .model import (
     LeNet,
     MobileNetV3CIFAR,
     ResNet18CIFAR,
+    ViTB16CIFAR,
     ViTCIFAR,
     build_model,
 )
@@ -156,6 +158,7 @@ MODEL_CLASSES: dict[str, type[nn.Module]] = {
     "EfficientNetB0CIFAR": EfficientNetB0CIFAR,
     "ConvNeXtTinyCIFAR": ConvNeXtTinyCIFAR,
     "ViTCIFAR": ViTCIFAR,
+    "ViTB16CIFAR": ViTB16CIFAR,
 }
 
 
@@ -166,7 +169,12 @@ def load_checkpoint(path: str | Path, device: torch.device) -> tuple[nn.Module, 
     model_id = payload.get("model_id")
     model_class = payload.get("model_class")
     if model_id:
-        model = build_model(model_id).to(device)
+        weight_mode = payload.get("config", {}).get("weight_mode", "scratch")
+        model = build_model(
+            model_id,
+            weight_mode=weight_mode,
+            initialize_weights=False,
+        ).to(device)
     elif model_class in MODEL_CLASSES:
         model = MODEL_CLASSES[model_class]().to(device)
     else:
@@ -182,3 +190,83 @@ def load_checkpoint(path: str | Path, device: torch.device) -> tuple[nn.Module, 
 def write_metrics(path: Path, metrics: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+
+def halve_until_fits(requested: int, fits, minimum: int = 4) -> int:
+    """Largest batch from ``requested``, halving, for which ``fits(batch)`` holds."""
+    batch = max(int(requested), 1)
+    while batch > minimum and not fits(batch):
+        batch //= 2
+    return max(batch, min(minimum, int(requested)))
+
+
+@contextlib.contextmanager
+def _undo_side_effects(model: nn.Module, device: torch.device):
+    """Run a probe without changing the model's statistics or the random streams.
+
+    A training-mode forward pass would otherwise overwrite BatchNorm running statistics
+    (ruining pretrained ones) and shift the dropout/shuffling random numbers.
+    """
+    norms = [m for m in model.modules() if isinstance(m, nn.modules.batchnorm._BatchNorm)]
+    saved = [(m.momentum, m.num_batches_tracked.clone() if m.num_batches_tracked is not None else None) for m in norms]
+    cpu_state = torch.get_rng_state()
+    cuda_state = torch.cuda.get_rng_state(device)
+    for module in norms:
+        module.momentum = 0.0
+    try:
+        yield
+    finally:
+        for module, (momentum, tracked) in zip(norms, saved):
+            module.momentum = momentum
+            if tracked is not None:
+                module.num_batches_tracked.copy_(tracked)
+        torch.set_rng_state(cpu_state)
+        torch.cuda.set_rng_state(cuda_state, device)
+
+
+def fit_batch_size(
+    model: nn.Module,
+    requested: int,
+    device: torch.device,
+    *,
+    training: bool,
+    sample_shape: tuple[int, ...] = (3, 32, 32),
+    headroom: float = 0.8,
+) -> int:
+    """Shrink a batch size until a measured step fits in free GPU memory.
+
+    Cards that run out of dedicated memory do not always raise an error: on Windows the
+    driver spills into shared system memory and training becomes an order of magnitude
+    slower. So the probe compares the measured peak with the free memory instead of
+    waiting for an out-of-memory error. On CPU the requested size is returned unchanged.
+    """
+    if device.type != "cuda":
+        return requested
+    parameter_bytes = sum(p.numel() * p.element_size() for p in model.parameters())
+    # Adam keeps two extra tensors per parameter; they are not present during the probe.
+    optimizer_bytes = 2 * parameter_bytes if training else 0
+
+    def fits(batch: int) -> bool:
+        torch.cuda.empty_cache()
+        free_bytes, _ = torch.cuda.mem_get_info(device)
+        torch.cuda.reset_peak_memory_stats(device)
+        baseline = torch.cuda.memory_allocated(device)
+        try:
+            with _undo_side_effects(model, device):
+                inputs = torch.randn(batch, *sample_shape, device=device)
+                if training:
+                    model.train()
+                    model(inputs).sum().backward()
+                    model.zero_grad(set_to_none=True)
+                else:
+                    model.eval()
+                    with torch.inference_mode():
+                        model(inputs)
+            peak = torch.cuda.max_memory_allocated(device) - baseline
+        except torch.cuda.OutOfMemoryError:
+            return False
+        finally:
+            torch.cuda.empty_cache()
+        return peak + optimizer_bytes <= free_bytes * headroom
+
+    return halve_until_fits(requested, fits)

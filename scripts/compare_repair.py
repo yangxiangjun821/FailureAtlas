@@ -10,7 +10,8 @@ import yaml
 
 from failure_atlas.adapters import get_dataset_adapter, get_model_adapter
 from failure_atlas.calibration import load_calibration
-from failure_atlas.catalog import validate_selection
+from failure_atlas.catalog import resolve_weight_mode, validate_selection
+from failure_atlas.config import check_weight_mode, effective_batch_size
 from failure_atlas.comparison import (
     save_comparison_json,
     save_comparison_plot,
@@ -19,7 +20,7 @@ from failure_atlas.comparison import (
 from failure_atlas.failure_search import FailureLevels, classify_drop, evaluate_perturbation, find_boundaries
 from failure_atlas.paths import experiment_paths
 from failure_atlas.severity import severities_for
-from failure_atlas.training import resolve_device
+from failure_atlas.training import fit_batch_size, resolve_device
 from scripts.search_failures import scale_severity
 
 
@@ -27,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="fashion_cnn")
     parser.add_argument("--dataset", default="fashion_mnist")
+    parser.add_argument("--weight-mode", choices=("scratch", "pretrained"))
     parser.add_argument("--seed", type=int)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--perturbation", action="append", dest="perturbations")
@@ -45,15 +47,22 @@ def main() -> None:
     repair = yaml.safe_load(Path("configs/repair.yaml").read_text(encoding="utf-8"))["repair"]
     if args.seed is not None:
         repair["seed"] = args.seed
-    if args.batch_size is not None:
-        search["batch_size"] = args.batch_size
+    weight_mode = resolve_weight_mode(args.model, args.weight_mode)
+    search["batch_size"] = effective_batch_size(
+        args.batch_size or search["batch_size"], weight_mode, explicit=args.batch_size is not None
+    )
     if not 0.25 <= args.severity_scale <= 2.0:
         raise ValueError("severity-scale must be between 0.25 and 2.0")
-    paths = experiment_paths(args.model, args.dataset)
+    paths = experiment_paths(args.model, args.dataset, weight_mode)
     baseline_analysis = json.loads(paths.failure_analysis.read_text(encoding="utf-8"))
     repair_plan = json.loads(paths.repair_plan.read_text(encoding="utf-8"))
     device = resolve_device(repair["device"])
     model = model_adapter.load_checkpoint(paths.repaired_checkpoint, device)
+    check_weight_mode(model, weight_mode, paths.repaired_checkpoint)
+    fitted = fit_batch_size(model, search["batch_size"], device, training=False)
+    if fitted != search["batch_size"]:
+        print(f"Batch size reduced {search['batch_size']} -> {fitted} to fit GPU memory")
+        search["batch_size"] = fitted
     loader = dataset_adapter.raw_test_loader(
         repair["data_dir"], search["batch_size"], search["num_workers"]
     )

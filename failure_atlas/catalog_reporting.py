@@ -40,7 +40,7 @@ def compatibility_markdown() -> str:
         ]
     )
     for model in models:
-        built = get_model_adapter(model.id).build()
+        built = get_model_adapter(model.id).build({"initialize_weights": False})
         parameter_count = sum(parameter.numel() for parameter in built.parameters())
         lines.append(
             f"| `{model.id}` | {model.architecture} | "

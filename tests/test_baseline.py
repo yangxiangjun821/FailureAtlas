@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 
 from failure_atlas.config import TrainConfig, load_train_config
-from failure_atlas.model import FashionCNN
+from failure_atlas.model import FashionCNN, build_model
 from failure_atlas.training import load_checkpoint, save_checkpoint
 
 
@@ -28,4 +28,27 @@ def test_checkpoint_round_trip(tmp_path: Path) -> None:
     assert torch.equal(
         model.state_dict()["classifier.4.weight"],
         restored.state_dict()["classifier.4.weight"],
+    )
+
+
+def test_pretrained_mode_checkpoint_restores_without_downloading(tmp_path: Path) -> None:
+    model = build_model(
+        "mobilenet_v3", weight_mode="pretrained", initialize_weights=False
+    )
+    path = tmp_path / "pretrained-mode.pt"
+    config = TrainConfig(weight_mode="pretrained")
+    save_checkpoint(
+        path,
+        model,
+        config,
+        {"accuracy": 0.5},
+        model_id="mobilenet_v3",
+        dataset_id="cifar10",
+    )
+    restored, payload = load_checkpoint(path, torch.device("cpu"))
+    assert payload["config"]["weight_mode"] == "pretrained"
+    assert restored.weight_mode == "pretrained"
+    assert torch.equal(
+        model.state_dict()["network.network.classifier.3.weight"],
+        restored.state_dict()["network.network.classifier.3.weight"],
     )

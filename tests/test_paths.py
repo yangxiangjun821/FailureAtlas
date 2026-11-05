@@ -51,3 +51,38 @@ def test_analyze_archive_excludes_repair_evidence() -> None:
     repair_files = {"repair_plan.json", "repair_comparison.json", "plots/repair_comparison.png"}
     assert repair_files.isdisjoint(analyze)
     assert repair_files <= set(full)
+
+
+def test_weight_modes_do_not_share_artifacts() -> None:
+    scratch = experiment_paths("mobilenet_v3", "cifar10", "scratch")
+    pretrained = experiment_paths("mobilenet_v3", "cifar10", "pretrained")
+    assert scratch.artifact_dir.name == "mobilenet_v3_cifar10"
+    assert pretrained.artifact_dir.name == "mobilenet_v3_cifar10_pretrained"
+    assert pretrained.weight_mode == "pretrained"
+
+    def outputs(p):
+        return {
+            p.baseline_checkpoint, p.repaired_checkpoint, p.repair_plan,
+            p.failure_analysis, p.repair_comparison, p.agent_report,
+        }
+
+    assert outputs(scratch).isdisjoint(outputs(pretrained))
+
+
+def test_pretrained_only_model_defaults_to_its_own_mode() -> None:
+    default = experiment_paths("vit_b16", "cifar10")
+    assert default.weight_mode == "pretrained"
+    assert default.artifact_dir.name == "vit_b16_cifar10"
+    with pytest.raises(ValueError):
+        experiment_paths("vit_b16", "cifar10", "scratch")
+    with pytest.raises(ValueError):
+        experiment_paths("lenet", "mnist", "pretrained")
+
+
+def test_pipeline_steps_follow_the_weight_mode() -> None:
+    def outputs(mode):
+        return {p for step in steps_for("full", "mobilenet_v3", "cifar10", mode) for p in step.outputs}
+
+    shared = outputs("scratch") & outputs("pretrained")
+    # Only the dataset marker is shared; every model artifact differs.
+    assert len(shared) == 1 and all("data" in p.parts for p in shared)

@@ -12,12 +12,14 @@ import yaml
 from torch import nn
 
 from failure_atlas.adapters import get_dataset_adapter, get_model_adapter
-from failure_atlas.catalog import validate_selection
+from failure_atlas.catalog import resolve_weight_mode, validate_selection
+from failure_atlas.config import check_weight_mode, effective_batch_size, effective_learning_rate
 from failure_atlas.config import TrainConfig
 from failure_atlas.paths import experiment_paths
 from failure_atlas.repair_agent import TargetedAugment, create_repair_plan
 from failure_atlas.training import (
     evaluate,
+    fit_batch_size,
     load_checkpoint,
     resolve_device,
     save_checkpoint,
@@ -31,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="configs/repair.yaml")
     parser.add_argument("--model", default="fashion_cnn")
     parser.add_argument("--dataset", default="fashion_mnist")
+    parser.add_argument("--weight-mode", choices=("scratch", "pretrained"))
     parser.add_argument("--seed", type=int)
     parser.add_argument("--batch-size", type=int)
     return parser.parse_args()
@@ -44,9 +47,14 @@ def main() -> None:
     settings = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))["repair"]
     if args.seed is not None:
         settings["seed"] = args.seed
-    if args.batch_size is not None:
-        settings["batch_size"] = args.batch_size
-    paths = experiment_paths(args.model, args.dataset)
+    weight_mode = resolve_weight_mode(args.model, args.weight_mode)
+    settings["batch_size"] = effective_batch_size(
+        args.batch_size or settings["batch_size"],
+        weight_mode,
+        explicit=args.batch_size is not None,
+    )
+    settings["learning_rate"] = effective_learning_rate(settings["learning_rate"], weight_mode)
+    paths = experiment_paths(args.model, args.dataset, weight_mode)
     analysis = json.loads(paths.failure_analysis.read_text(encoding="utf-8"))
     plan = create_repair_plan(analysis, settings["top_k"])
     plan_path = paths.repair_plan
@@ -64,6 +72,7 @@ def main() -> None:
     set_seed(settings["seed"])
     device = resolve_device(settings["device"])
     model, baseline_payload = load_checkpoint(paths.baseline_checkpoint, device)
+    check_weight_mode(model, weight_mode, paths.baseline_checkpoint)
     baseline_config = baseline_payload["config"]
     if "val_fraction" not in baseline_config:
         raise RuntimeError(
@@ -75,6 +84,10 @@ def main() -> None:
     # The split must match the baseline's exactly, otherwise validation leaks.
     val_fraction = baseline_config["val_fraction"]
     split_seed = baseline_config["seed"]
+    fitted = fit_batch_size(model, settings["batch_size"], device, training=True)
+    if fitted != settings["batch_size"]:
+        print(f"Batch size reduced {settings['batch_size']} -> {fitted} to fit GPU memory")
+        settings["batch_size"] = fitted
     mean, std = dataset_adapter.normalization
     # Checkpoint selection uses a validation split carved from the training data,
     # so the test split is only touched afterwards by compare_repair.

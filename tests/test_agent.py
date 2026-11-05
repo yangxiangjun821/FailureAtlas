@@ -52,6 +52,15 @@ def test_pipeline_command_carries_reproducibility_controls() -> None:
     assert command.count("--perturbation") == 2
     assert command[command.index("--severity-scale") + 1] == "0.5"
 
+    baseline = steps_for("baseline", "mobilenet_v3", "cifar10")[-1]
+    pretrained = command_for(
+        baseline,
+        model_id="mobilenet_v3",
+        dataset_id="cifar10",
+        weight_mode="pretrained",
+    )
+    assert pretrained[pretrained.index("--weight-mode") + 1] == "pretrained"
+
 
 def test_dry_run_does_not_create_workspace(tmp_path) -> None:
     assert run_pipeline("analyze", dry_run=True, runs_root=tmp_path) is None

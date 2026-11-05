@@ -15,7 +15,8 @@ from uuid import uuid4
 import torch
 import yaml
 
-from .catalog import validate_selection
+from .catalog import validate_selection, validate_weight_mode
+from .model import pretrained_weight_metadata
 
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
@@ -45,8 +46,10 @@ def create_run_workspace(
     seed: int = 42,
     batch_size: int | None = None,
     severity_scale: float = 1.0,
+    weight_mode: str = "scratch",
     run_id: str | None = None,
 ) -> RunWorkspace:
+    validate_weight_mode(model_id, weight_mode)
     model, dataset, perturbations = validate_selection(
         model_id, dataset_id, perturbation_ids, require_implemented=True
     )
@@ -72,7 +75,10 @@ def create_run_workspace(
         "seed": seed,
         "batch_size": batch_size,
         "severity_scale": severity_scale,
+        "weight_mode": weight_mode,
     }
+    if weight_mode == "pretrained":
+        config["pretrained_weights"] = pretrained_weight_metadata(model.id)
     (workspace_path / "config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
     )

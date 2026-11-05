@@ -17,6 +17,16 @@ class ModelSpec:
     num_classes: int
     datasets: tuple[str, ...]
     implemented: bool = True
+    pretrained_available: bool = False
+    # False for models defined only with official pretrained weights (no scratch variant).
+    scratch_available: bool = True
+
+    def supports_weight_mode(self, weight_mode: str) -> bool:
+        if weight_mode == "scratch":
+            return self.scratch_available
+        if weight_mode == "pretrained":
+            return self.pretrained_available
+        return False
 
 
 @dataclass(frozen=True)
@@ -127,6 +137,7 @@ for modern_model in (
         input_size=(32, 32),
         num_classes=10,
         datasets=("cifar10",),
+        pretrained_available=True,
     ),
     ModelSpec(
         id="efficientnet_b0",
@@ -137,6 +148,7 @@ for modern_model in (
         input_size=(32, 32),
         num_classes=10,
         datasets=("cifar10",),
+        pretrained_available=True,
     ),
     ModelSpec(
         id="convnext_tiny",
@@ -147,6 +159,7 @@ for modern_model in (
         input_size=(32, 32),
         num_classes=10,
         datasets=("cifar10",),
+        pretrained_available=True,
     ),
     ModelSpec(
         id="vit",
@@ -157,6 +170,21 @@ for modern_model in (
         input_size=(32, 32),
         num_classes=10,
         datasets=("cifar10",),
+    ),
+    # A different network from "vit": the official ImageNet ViT-B/16 needs 224x224
+    # inputs and exists only with pretrained weights. Keeping it under its own id means
+    # one model id always names one architecture, so weight modes stay comparable.
+    ModelSpec(
+        id="vit_b16",
+        display_name="ViT-B/16 (ImageNet)",
+        task="image_classification",
+        architecture="vision_transformer_b16",
+        input_channels=3,
+        input_size=(32, 32),
+        num_classes=10,
+        datasets=("cifar10",),
+        pretrained_available=True,
+        scratch_available=False,
     ),
 ):
     MODEL_REGISTRY.register(modern_model)
@@ -206,6 +234,7 @@ DATASET_REGISTRY.register(
             "efficientnet_b0",
             "convnext_tiny",
             "vit",
+            "vit_b16",
         ),
         perturbations=IMAGE_PERTURBATIONS,
         normalization_mean=(0.4914, 0.4822, 0.4465),
@@ -285,3 +314,30 @@ def validate_selection(
         if pending:
             raise NotImplementedError(f"Planned but not implemented: {', '.join(pending)}")
     return model, dataset, perturbations
+
+
+WEIGHT_MODES = ("scratch", "pretrained")
+
+
+def validate_weight_mode(model_id: str, weight_mode: str) -> ModelSpec:
+    """Reject a weight mode the model does not define, with an actionable message."""
+    if weight_mode not in WEIGHT_MODES:
+        raise ValueError(f"weight_mode must be one of {', '.join(WEIGHT_MODES)}.")
+    model = MODEL_REGISTRY.get(model_id)
+    if not model.supports_weight_mode(weight_mode):
+        if weight_mode == "pretrained":
+            raise ValueError(f"Model '{model_id}' does not provide pretrained weights.")
+        raise ValueError(
+            f"Model '{model_id}' is only defined with official pretrained weights; "
+            "use weight_mode='pretrained'."
+        )
+    return model
+
+
+def resolve_weight_mode(model_id: str, weight_mode: str | None = None) -> str:
+    """The requested weight mode, or the model's natural one when none is requested."""
+    model = MODEL_REGISTRY.get(model_id)
+    if weight_mode is None:
+        return "scratch" if model.scratch_available else "pretrained"
+    validate_weight_mode(model_id, weight_mode)
+    return weight_mode

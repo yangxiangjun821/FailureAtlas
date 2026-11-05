@@ -30,7 +30,9 @@ from .model import (
     LeNet,
     MobileNetV3CIFAR,
     ResNet18CIFAR,
+    ViTB16CIFAR,
     ViTCIFAR,
+    pretrained_weight_metadata,
 )
 from .training import evaluate, load_checkpoint, train_one_epoch
 
@@ -175,7 +177,8 @@ class FashionCNNAdapter(ModelAdapter):
         return evaluate(model, loader, device)
 
     def export_metadata(self, model: nn.Module) -> dict:
-        return {
+        weight_mode = getattr(model, "weight_mode", "scratch")
+        metadata = {
             "model_id": self.spec.id,
             "display_name": self.spec.display_name,
             "architecture": self.spec.architecture,
@@ -183,7 +186,11 @@ class FashionCNNAdapter(ModelAdapter):
             "input_channels": self.spec.input_channels,
             "input_size": list(self.spec.input_size),
             "num_classes": self.spec.num_classes,
+            "weight_mode": weight_mode,
         }
+        if weight_mode == "pretrained":
+            metadata["pretrained_weights"] = pretrained_weight_metadata(self.spec.id)
+        return metadata
 
 
 class LeNetAdapter(FashionCNNAdapter):
@@ -212,7 +219,12 @@ class MobileNetV3Adapter(FashionCNNAdapter):
         return MODEL_REGISTRY.get("mobilenet_v3")
 
     def build(self, config: Mapping | None = None) -> nn.Module:
-        return MobileNetV3CIFAR(int((config or {}).get("num_classes", self.spec.num_classes)))
+        values = config or {}
+        return MobileNetV3CIFAR(
+            int(values.get("num_classes", self.spec.num_classes)),
+            str(values.get("weight_mode", "scratch")),
+            bool(values.get("initialize_weights", True)),
+        )
 
 
 class EfficientNetB0Adapter(FashionCNNAdapter):
@@ -221,7 +233,12 @@ class EfficientNetB0Adapter(FashionCNNAdapter):
         return MODEL_REGISTRY.get("efficientnet_b0")
 
     def build(self, config: Mapping | None = None) -> nn.Module:
-        return EfficientNetB0CIFAR(int((config or {}).get("num_classes", self.spec.num_classes)))
+        values = config or {}
+        return EfficientNetB0CIFAR(
+            int(values.get("num_classes", self.spec.num_classes)),
+            str(values.get("weight_mode", "scratch")),
+            bool(values.get("initialize_weights", True)),
+        )
 
 
 class ConvNeXtTinyAdapter(FashionCNNAdapter):
@@ -230,7 +247,12 @@ class ConvNeXtTinyAdapter(FashionCNNAdapter):
         return MODEL_REGISTRY.get("convnext_tiny")
 
     def build(self, config: Mapping | None = None) -> nn.Module:
-        return ConvNeXtTinyCIFAR(int((config or {}).get("num_classes", self.spec.num_classes)))
+        values = config or {}
+        return ConvNeXtTinyCIFAR(
+            int(values.get("num_classes", self.spec.num_classes)),
+            str(values.get("weight_mode", "scratch")),
+            bool(values.get("initialize_weights", True)),
+        )
 
 
 class ViTAdapter(FashionCNNAdapter):
@@ -239,7 +261,24 @@ class ViTAdapter(FashionCNNAdapter):
         return MODEL_REGISTRY.get("vit")
 
     def build(self, config: Mapping | None = None) -> nn.Module:
-        return ViTCIFAR(int((config or {}).get("num_classes", self.spec.num_classes)))
+        values = config or {}
+        if str(values.get("weight_mode", "scratch")) != "scratch":
+            raise ValueError("Model 'vit' does not provide pretrained weights.")
+        return ViTCIFAR(int(values.get("num_classes", self.spec.num_classes)))
+
+
+class ViTB16Adapter(FashionCNNAdapter):
+    @property
+    def spec(self) -> ModelSpec:
+        return MODEL_REGISTRY.get("vit_b16")
+
+    def build(self, config: Mapping | None = None) -> nn.Module:
+        values = config or {}
+        return ViTB16CIFAR(
+            int(values.get("num_classes", self.spec.num_classes)),
+            str(values.get("weight_mode", "pretrained")),
+            bool(values.get("initialize_weights", True)),
+        )
 
 
 class FashionMNISTAdapter(DatasetAdapter):
@@ -359,6 +398,7 @@ def get_model_adapter(model_id: str) -> ModelAdapter:
         "efficientnet_b0": EfficientNetB0Adapter,
         "convnext_tiny": ConvNeXtTinyAdapter,
         "vit": ViTAdapter,
+        "vit_b16": ViTB16Adapter,
     }
     if model_id in adapters:
         return adapters[model_id]()
