@@ -44,3 +44,6 @@ sites/failure-atlas-showcase/
 
 # Local TorchVision weight cache (used when ~/.cache is not writable)
 .torch-cache/
+
+# LLM agent traces and repaired checkpoints (agent/)
+agent_runs/

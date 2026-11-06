@@ -9,6 +9,7 @@ import platform
 import re
 import shutil
 import sys
+import threading
 import zipfile
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -760,3 +761,50 @@ async def start_job(action: Literal["rescan", "repair"]) -> dict:
     }[action]
     job_task = asyncio.create_task(run_commands(action, modules))
     return {"accepted": True, "action": action}
+
+
+# ---------------------------------------------------------------- LLM agent
+# The agent package lives at the repository root (agent/); it is imported lazily so
+# the dashboard keeps working, and demo mode keeps deploying, without it.
+agent_lock = threading.Lock()
+
+
+class AgentRunRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=500)
+    max_steps: int = Field(default=8, ge=1, le=20)
+
+
+def build_agent_runtime():
+    """(client, tools) for one agent run; tests replace this with fakes."""
+    from agent.agent import OpenAICompatibleClient
+    from agent.tools import FailureAtlasTools
+
+    return OpenAICompatibleClient.from_env(), FailureAtlasTools()
+
+
+@app.post("/agent/run")
+def agent_run(request: AgentRunRequest) -> dict:
+    """Run the LLM agent synchronously on a natural-language goal (takes minutes)."""
+    if DEMO_MODE:
+        raise HTTPException(status_code=403, detail="在线演示为只读模式，请使用本地版本运行 Agent。")
+    if job_task is not None and not job_task.done():
+        raise HTTPException(status_code=409, detail="已有实验正在运行，请等待完成。")
+    if not agent_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="已有 Agent 正在运行，请等待完成。")
+    try:
+        from agent.agent import run_agent
+
+        try:
+            client, tools = build_agent_runtime()
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        trace = run_agent(request.goal, client, tools, max_steps=request.max_steps)
+    finally:
+        agent_lock.release()
+    return {
+        "status": trace["status"],
+        "summary": trace["summary"],
+        "verified_after_repair": trace["verified_after_repair"],
+        "steps": trace["steps"],
+        "trace_path": trace["trace_path"],
+    }

@@ -167,6 +167,67 @@ python -m scripts.compare_repair
 
 The final evidence report is written to `reports/generated/repair_report.md`.
 
+## LLM agent (tool calling)
+
+`agent/` adds a small LLM-driven loop next to the rule-based agent above: the model
+reads tool results and decides the next call (observe → decide → call → verify). It
+uses any OpenAI-compatible `/chat/completions` endpoint with tool calling, through a
+standard-library HTTP client, so it needs no extra package.
+
+| Tool | What it returns |
+| --- | --- |
+| `evaluate_model` | clean accuracy, ECE, macro-F1 (`checkpoint="repaired"` re-tests) |
+| `find_failure_boundary` | first severity whose accuracy drop ≥ `threshold`, plus the curve |
+| `rank_vulnerability` | perturbations by vulnerability score, the 3 weakest classes |
+| `apply_targeted_repair` | single-perturbation augmentation fine-tune, before/after metrics |
+
+Configure the endpoint with three environment variables and run from the repository
+root:
+
+```powershell
+$env:BASE_URL = "https://api.openai.com/v1"   # or http://localhost:11434/v1 for Ollama
+$env:API_KEY  = "<your key>"                  # Ollama ignores it
+$env:MODEL    = "gpt-4o-mini"                 # or e.g. qwen2.5:7b on Ollama
+python -m agent.agent "帮我找出 MobileNetV3 在 CIFAR-10 上最脆弱的扰动并修复"
+```
+
+or start the dashboard (`python -m scripts.serve_dashboard`) and call
+`POST /agent/run` with `{"goal": "...", "max_steps": 8}`; it returns the summary and
+the full trajectory. Every step is written to `agent_runs/agent_trace.json`.
+
+Demo mode (the default) keeps a run within a few minutes on an RTX 3060: evaluation
+and boundary scans use a fixed 1,000-image test subset, the ranking reuses the cached
+full-test-set scan in `reports/generated/`, and the repair fine-tunes one epoch on
+2,000 training images. Each tool result names its `source` and `sample_count`. Pass
+`--full` to use the complete splits. The agent tools need a trained baseline
+checkpoint and never overwrite `artifacts/`; repaired checkpoints go to
+`agent_runs/checkpoints/`. Tests use a scripted fake LLM:
+`python -m pytest tests/test_llm_agent.py`.
+
+### Example trace
+
+A real run on 2026-11-06 with `deepseek-chat`, goal
+「帮我找出 MobileNetV3 在 CIFAR-10 上最脆弱的扰动并修复」, demo mode on an RTX 3060.
+Five LLM calls, 34 seconds end to end, `status: finished`,
+`verified_after_repair: true`. Condensed from `agent_runs/agent_trace.json`:
+
+| Step | Model's decision | Tool call | Key result |
+| --- | --- | --- | --- |
+| 1 | Evaluate, then rank | `evaluate_model` | accuracy 0.929, ECE 0.0429 (1,000-image subset) |
+| 1 | | `rank_vulnerability` | gaussian_noise 0.5528 > blur 0.5261 > occlusion 0.1165 > rotation 0.0845 > brightness 0.0256 (cached 10k scan); weakest classes horse, automobile, dog |
+| 2 | Confirm the top perturbation | `find_failure_boundary(gaussian_noise, 0.10)` | 10-point drop at σ = 0.0309 (accuracy 0.818) |
+| 3 | Early failure → repair | `apply_targeted_repair(gaussian_noise)` | at σ = 0.0466: accuracy 0.675 → 0.771, ECE 0.2108 → 0.140; clean 0.929 → 0.938 |
+| 4 | Must re-test | `find_failure_boundary(..., checkpoint="repaired")` | boundary σ 0.0309 → 0.0466; at σ = 0.0309 accuracy 0.818 → 0.856 |
+| 5 | Final answer | — | Chinese summary with sources, sample counts and limitations |
+
+The final summary cited every number correctly from the tool results, with one
+wording slip: it called "0.818 → 0.771" a same-severity improvement, although those
+two accuracies are at different severities (0.0309 and 0.0466). It also noted its own
+limits: only Gaussian noise was repaired, blur (score 0.5261) was not re-tested, and
+the repair is a light 1-epoch, 2,000-image fine-tune. The full run, with every tool
+result, both accuracy curves and the model's verbatim summary, is in the
+[LLM agent run report](docs/llm-agent-run-report.md).
+
 ## Web dashboard
 
 The dashboard is an optional visualization layer, not a requirement for running the
