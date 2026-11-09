@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    model_spec, _, _ = validate_selection(args.model, args.dataset)
+    validate_selection(args.model, args.dataset)
     model_adapter = get_model_adapter(args.model)
     dataset_adapter = get_dataset_adapter(args.dataset)
     settings = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))["repair"]
@@ -84,8 +84,7 @@ def main() -> None:
     # The split must match the baseline's exactly, otherwise validation leaks.
     val_fraction = baseline_config["val_fraction"]
     split_seed = baseline_config["seed"]
-    sample_shape = (model_spec.input_channels, *model_spec.input_size)
-    fitted = fit_batch_size(model, settings["batch_size"], device, training=True, sample_shape=sample_shape)
+    fitted = fit_batch_size(model, settings["batch_size"], device, training=True)
     if fitted != settings["batch_size"]:
         print(f"Batch size reduced {settings['batch_size']} -> {fitted} to fit GPU memory")
         settings["batch_size"] = fitted

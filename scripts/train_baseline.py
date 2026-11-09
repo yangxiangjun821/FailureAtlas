@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    model_spec, _, _ = validate_selection(args.model, args.dataset)
+    validate_selection(args.model, args.dataset)
     model_adapter = get_model_adapter(args.model)
     dataset_adapter = get_dataset_adapter(args.dataset)
     config = load_train_config(args.config)
@@ -85,8 +85,7 @@ def main() -> None:
     # Shrink the batch if a measured training step would not fit in free GPU memory. An
     # explicit --batch-size is shrunk too: a size that spills into shared memory is never
     # what anyone wants. The fitted size is what gets recorded in the checkpoint config.
-    sample_shape = (model_spec.input_channels, *model_spec.input_size)
-    fitted = fit_batch_size(model, config.batch_size, device, training=True, sample_shape=sample_shape)
+    fitted = fit_batch_size(model, config.batch_size, device, training=True)
     if fitted != config.batch_size:
         print(f"Batch size reduced {config.batch_size} -> {fitted} to fit GPU memory")
         config = replace(config, batch_size=fitted)
