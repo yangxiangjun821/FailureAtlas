@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     selected = tuple(args.perturbations) if args.perturbations else None
-    validate_selection(args.model, args.dataset, selected)
+    model_spec, _, _ = validate_selection(args.model, args.dataset, selected)
     model_adapter = get_model_adapter(args.model)
     dataset_adapter = get_dataset_adapter(args.dataset)
     calibration = load_calibration(args.dataset)
@@ -59,7 +59,8 @@ def main() -> None:
     device = resolve_device(repair["device"])
     model = model_adapter.load_checkpoint(paths.repaired_checkpoint, device)
     check_weight_mode(model, weight_mode, paths.repaired_checkpoint)
-    fitted = fit_batch_size(model, search["batch_size"], device, training=False)
+    sample_shape = (model_spec.input_channels, *model_spec.input_size)
+    fitted = fit_batch_size(model, search["batch_size"], device, training=False, sample_shape=sample_shape)
     if fitted != search["batch_size"]:
         print(f"Batch size reduced {search['batch_size']} -> {fitted} to fit GPU memory")
         search["batch_size"] = fitted
